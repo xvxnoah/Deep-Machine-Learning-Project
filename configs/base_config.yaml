@@ -1,0 +1,67 @@
+# Model Configuration
+model:
+  name: "google/vit-base-patch16-224"  # HuggingFace model name
+  pretrained: true
+  num_classes: 5  # 5 hemorrhage subtypes
+  input_channels: 9  # 3 slices × 3 window presets
+  channel_adaptation: "avg_pool"
+  dropout: 0.1
+  backend: "huggingface"  # Options: huggingface (BEST MPS support), torchvision, timm
+  
+# Data Configuration
+data:
+  data_root: "processed_data"
+  train_split: "train"
+  val_split: "val"
+  test_split: "test"
+  batch_size: 16
+  num_workers: 4
+  pin_memory: true
+  
+# Training Configuration
+training:
+  epochs: 1
+  learning_rate: 0.0001  # 1e-4
+  weight_decay: 0.00001  # 1e-5
+  optimizer: "adamw"
+  scheduler: "cosine"
+  warmup_epochs: 5
+  gradient_clip: 1.0
+  
+# Loss Configuration
+loss:
+  type: "weighted_bce"  # Weighted Binary Cross Entropy
+  pos_weight_strategy: "inverse_freq"  # Options: inverse_freq, effective_samples, sqrt_inverse_freq
+  
+# Metrics Configuration
+metrics:
+  track_per_class: true
+  metrics_list:
+    - "auc_roc"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "accuracy"
+  threshold: 0.5
+  
+# W&B Configuration
+wandb:
+  project: "Deep Machine Learning Project"
+  entity: null
+  log_interval: 10  # Log every N batches
+  log_model: true  # Save model checkpoints to W&B
+  watch_model: true  # Watch gradients and parameters
+  
+# Checkpoint Configuration
+checkpoint:
+  save_dir: "checkpoints"
+  save_frequency: 5  # Save every N epochs
+  save_best: true
+  metric_for_best: "val_auc_roc_macro"  # Metric to determine best model
+  mode: "max"  # max or min
+  
+# Hardware Configuration
+hardware:
+  device: "auto"  # auto, cuda, mps, cpu
+  seed: 5252
+
