@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as tv_models
 from torchvision.models import ViT_B_16_Weights
-from transformers import ViTForImageClassification, ViTConfig
+from transformers import ViTForImageClassification, ViTConfig, ViTModel
 from .channel_adapter import ChannelAdapter
 
 
@@ -187,4 +187,148 @@ class ViTClassifier(nn.Module):
             hook.remove()
         
         return attention_maps
+
+
+class ViTTripletBiRNNClassifier(nn.Module):
+    """Processes triplets of CT slices with a shared ViT encoder and a bidirectional RNN."""
+
+    def __init__(
+        self,
+        model_name='google/vit-base-patch16-224',
+        num_classes=5,
+        pretrained=True,
+        input_channels=9,
+        slice_channels=3,
+        dropout=0.1,
+        rnn_hidden_size=512,
+        rnn_num_layers=1,
+        rnn_dropout=0.0,
+        sequence_pooling='last',
+        backend='huggingface'
+    ):
+        """Initialise the hybrid ViT-RNN classifier.
+
+        Args:
+            model_name (str): ViT backbone identifier.
+            num_classes (int): Number of output labels.
+            pretrained (bool): Whether to load ImageNet-pretrained weights.
+            input_channels (int): Total channel count (e.g. 9 for 3 slices × 3 channels).
+            slice_channels (int): Number of channels per slice (defaults to windowed RGB triplets).
+            dropout (float): Dropout applied before the classifier head.
+            rnn_hidden_size (int): Hidden size of the bidirectional RNN.
+            rnn_num_layers (int): Number of RNN layers.
+            rnn_dropout (float): Dropout between stacked RNN layers (ignored if one layer).
+            sequence_pooling (str): Aggregation strategy, supports 'last' or 'mean'.
+            backend (str): Currently only 'huggingface' is supported.
+        """
+        super().__init__()
+
+        if backend != 'huggingface':
+            raise ValueError("ViTTripletBiRNNClassifier currently supports only the 'huggingface' backend")
+
+        if input_channels % slice_channels != 0:
+            raise ValueError("input_channels must be divisible by slice_channels so slices can be reconstructed")
+
+        if sequence_pooling not in {'last', 'mean'}:
+            raise ValueError("sequence_pooling must be either 'last' or 'mean'")
+
+        self.num_classes = num_classes
+        self.slice_channels = slice_channels
+        self.num_slices = input_channels // slice_channels
+        self.sequence_pooling = sequence_pooling
+
+        if pretrained:
+            self.vit = ViTModel.from_pretrained(model_name)
+        else:
+            vit_config = ViTConfig.from_pretrained(model_name)
+            self.vit = ViTModel(vit_config)
+
+        self.embed_dim = self.vit.config.hidden_size
+
+        # Bidirectional RNN that fuses per-slice embeddings into a sequence representation
+        self.rnn = nn.LSTM(
+            input_size=self.embed_dim,
+            hidden_size=rnn_hidden_size,
+            num_layers=rnn_num_layers,
+            bidirectional=True,
+            batch_first=True,
+            dropout=rnn_dropout if rnn_num_layers > 1 else 0.0
+        )
+
+        self.rnn_output_dim = rnn_hidden_size * 2  # bidirectional
+        self.head = nn.Sequential(
+            nn.LayerNorm(self.rnn_output_dim),
+            nn.Dropout(dropout),
+            nn.Linear(self.rnn_output_dim, num_classes)
+        )
+
+    def forward(self, x):
+        """Forward pass.
+
+        Args:
+            x (torch.Tensor): Tensor shaped (B, num_slices * slice_channels, H, W).
+
+        Returns:
+            torch.Tensor: Logits shaped (B, num_classes).
+        """
+        b, c, h, w = x.shape
+
+        if c != self.num_slices * self.slice_channels:
+            raise ValueError(
+                f"Expected {self.num_slices * self.slice_channels} channels (got {c}); "
+                "check slice_channels or input preprocessing."
+            )
+
+        # Group channels back into (B, num_slices, slice_channels, H, W)
+        slices = x.view(b, self.num_slices, self.slice_channels, h, w).contiguous()
+
+        # Flatten slice dimension into the batch to reuse the ViT in a single call
+        slices = slices.view(b * self.num_slices, self.slice_channels, h, w).contiguous()
+
+        vit_outputs = self.vit(pixel_values=slices)
+        if vit_outputs.pooler_output is not None:
+            slice_embeddings = vit_outputs.pooler_output
+        else:
+            # Fallback to class token representation if pooler is disabled
+            slice_embeddings = vit_outputs.last_hidden_state[:, 0]
+
+        slice_embeddings = slice_embeddings.view(b, self.num_slices, self.embed_dim).contiguous()
+
+        sequence_output, (h_n, _) = self.rnn(slice_embeddings)
+
+        if self.sequence_pooling == 'mean':
+            seq_repr = sequence_output.mean(dim=1)
+        else:
+            # Concatenate final hidden states from both directions
+            forward_final = h_n[-2]
+            backward_final = h_n[-1]
+            seq_repr = torch.cat([forward_final, backward_final], dim=-1)
+
+        logits = self.head(seq_repr)
+        return logits
+
+    def freeze_backbone(self):
+        """Freeze the ViT encoder parameters."""
+        for param in self.vit.parameters():
+            param.requires_grad = False
+
+    def unfreeze_backbone(self):
+        """Unfreeze the ViT encoder parameters."""
+        for param in self.vit.parameters():
+            param.requires_grad = True
+
+    def get_slice_embeddings(self, x):
+        """Return per-slice embeddings before sequence fusion (useful for debugging)."""
+        self.eval()
+        with torch.no_grad():
+            b, c, h, w = x.shape
+            slices = x.view(b, self.num_slices, self.slice_channels, h, w).contiguous()
+            slices = slices.view(b * self.num_slices, self.slice_channels, h, w).contiguous()
+            vit_outputs = self.vit(pixel_values=slices)
+            if vit_outputs.pooler_output is not None:
+                embeddings = vit_outputs.pooler_output
+            else:
+                embeddings = vit_outputs.last_hidden_state[:, 0]
+            embeddings = embeddings.view(b, self.num_slices, self.embed_dim).contiguous()
+        return embeddings
 

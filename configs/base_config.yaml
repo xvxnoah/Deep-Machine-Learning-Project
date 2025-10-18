@@ -4,9 +4,13 @@ model:
   pretrained: true
   num_classes: 5  # 5 hemorrhage subtypes
   input_channels: 9  # 3 slices × 3 window presets
-  channel_adaptation: "avg_pool"
+  slice_channels: 3  # Channels per slice fed to the ViT backbone
   dropout: 0.1
   backend: "huggingface"  # Options: huggingface (BEST MPS support), torchvision, timm
+  rnn_hidden_size: 512
+  rnn_num_layers: 1
+  rnn_dropout: 0.0
+  sequence_pooling: "last"
   
 # Data Configuration
 data:
@@ -14,18 +18,18 @@ data:
   train_split: "train"
   val_split: "val"
   test_split: "test"
-  batch_size: 16
-  num_workers: 4
-  pin_memory: true
+  batch_size: 32
+  num_workers: 8
+  pin_memory: false 
   
 # Training Configuration
 training:
-  epochs: 1
+  epochs: 20
   learning_rate: 0.0001  # 1e-4
   weight_decay: 0.00001  # 1e-5
   optimizer: "adamw"
   scheduler: "cosine"
-  warmup_epochs: 5
+  warmup_epochs: 2
   gradient_clip: 1.0
   
 # Loss Configuration
