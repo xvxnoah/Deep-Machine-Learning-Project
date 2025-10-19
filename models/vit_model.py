@@ -1,13 +1,37 @@
+"""
+Vision Transformer for Brain Hemorrhage Classification
+
+This module implements a ViT-based classifier with:
+- Deep convolutional channel adapter (9 -> 3 channels)
+- Pre-trained ViT backbone (frozen during training)
+- Attention-MLP classification head
+"""
+
 import torch
 import torch.nn as nn
-import torchvision.models as tv_models
-from torchvision.models import ViT_B_16_Weights
-from transformers import ViTForImageClassification, ViTConfig
-from .channel_adapter import ChannelAdapter
+from transformers import ViTModel
+from .channel_adapter import DeepConvAdapter
+from .classification_head import AttentionMLPHead
 
 
 class ViTClassifier(nn.Module):
-    """Vision Transformer for Intracranial Hemorrhage Classification."""
+    """
+    Vision Transformer classifier for intracranial hemorrhage detection.
+    
+    Architecture:
+        Input (9 channels) -> DeepConvAdapter (3 channels) -> ViT (frozen) -> AttentionMLPHead -> Output (5 classes)
+    
+    Args:
+        model_name: HuggingFace ViT model name (default: 'google/vit-base-patch16-224')
+        num_classes: Number of output classes (default: 5)
+        pretrained: Use pretrained weights (default: True)
+        input_channels: Number of input channels (default: 9)
+        dropout: Dropout rate for classification head (default: 0.1)
+        head_hidden_dims: Hidden dimensions for MLP head (default: [512, 256, 128])
+        head_num_attention_heads: Number of attention heads (default: 8)
+        head_attention_dropout: Dropout for attention (default: 0.1)
+        head_use_residual: Use residual connections (default: True)
+    """
     
     def __init__(
         self,
@@ -15,176 +39,107 @@ class ViTClassifier(nn.Module):
         num_classes=5,
         pretrained=True,
         input_channels=9,
-        channel_adaptation='conv1x1',
         dropout=0.1,
-        backend='huggingface'
+        head_hidden_dims=[512, 256, 128],
+        head_num_attention_heads=8,
+        head_attention_dropout=0.1,
+        head_use_residual=True,
+        # Unused legacy parameters (kept for backward compatibility with old configs)
+        channel_adaptation=None,
+        backend=None,
+        head_type=None
     ):
-        """
-        Args:
-            model_name (str): Name of ViT model
-            num_classes (int): Number of output classes (5 hemorrhage types)
-            pretrained (bool): Use ImageNet pretrained weights
-            input_channels (int): Number of input channels (9 for our case)
-            channel_adaptation (str): Strategy for 9→3 channel adaptation
-            dropout (float): Dropout rate for classification head
-            backend (str): 'huggingface', 'torchvision', or 'timm'
-        """
         super().__init__()
         
         self.num_classes = num_classes
         self.input_channels = input_channels
-        self.backend = backend
         
-        # Channel adapter (9 channels → 3 channels)
+        # Channel adapter (9 -> 3 channels)
         if input_channels != 3:
-            self.channel_adapter = ChannelAdapter(
-                in_channels=input_channels,
-                out_channels=3,
-                strategy=channel_adaptation
-            )
+            self.channel_adapter = DeepConvAdapter(input_channels=input_channels)
         else:
             self.channel_adapter = nn.Identity()
         
-        # Load pretrained ViT
-        if backend == 'huggingface':
-            if pretrained:
-                self.vit = ViTForImageClassification.from_pretrained(
-                    model_name, 
-                    num_labels=num_classes,
-                    ignore_mismatched_sizes=True  # Allow different number of classes
-                )
-            else:
-                config = ViTConfig.from_pretrained(model_name)
-                config.num_labels = num_classes
-                self.vit = ViTForImageClassification(config)
-            
-            self.embed_dim = self.vit.config.hidden_size
-            self.use_builtin_head = True  # Flag to use built-in classifier
-            
-        elif backend == 'torchvision':
-            # Use torchvision ViT
-            if pretrained:
-                weights = ViT_B_16_Weights.IMAGENET1K_V1
-                self.vit = tv_models.vit_b_16(weights=weights)
-            else:
-                self.vit = tv_models.vit_b_16(weights=None)
-            
-            # Remove the classification head
-            self.embed_dim = self.vit.heads.head.in_features
-            self.vit.heads = nn.Identity()
-            
-        elif backend == 'timm':
-            # Use timm ViT
-            import timm
-            self.vit = timm.create_model(
-                model_name,
-                pretrained=pretrained,
-                num_classes=0,  # Remove classification head
-            )
-            self.embed_dim = self.vit.num_features
+        # Load pretrained ViT backbone
+        if pretrained:
+            self.vit = ViTModel.from_pretrained(model_name)
         else:
-            raise ValueError(f"Unknown backend: {backend}. Choose 'huggingface', 'torchvision', or 'timm'")
+            from transformers import ViTConfig
+            config = ViTConfig.from_pretrained(model_name)
+            self.vit = ViTModel(config)
         
-        # Custom classification head for multi-label classification (only for non-huggingface backends)
-        if backend != 'huggingface':
-            self.classifier = nn.Sequential(
-                nn.LayerNorm(self.embed_dim),
-                nn.Dropout(dropout),
-                nn.Linear(self.embed_dim, num_classes)
-            )
-        else:
-            # HuggingFace has built-in classifier - no need for custom head
-            self.classifier = None
+        self.embed_dim = self.vit.config.hidden_size
+        
+        # Classification head
+        self.head = AttentionMLPHead(
+            input_dim=self.embed_dim,
+            num_classes=num_classes,
+            hidden_dims=head_hidden_dims,
+            num_attention_heads=head_num_attention_heads,
+            attention_dropout=head_attention_dropout,
+            dropout=dropout,
+            use_residual=head_use_residual
+        )
         
     def forward(self, x):
         """
+        Forward pass.
+        
         Args:
-            x (torch.Tensor): Input tensor of shape (B, 9, H, W)
-            
+            x: Input tensor [batch_size, input_channels, height, width]
+        
         Returns:
-            torch.Tensor: Logits of shape (B, num_classes)
+            Logits [batch_size, num_classes]
         """
-        # Adapt channels: (B, 9, H, W) → (B, 3, H, W)
+        # Adapt channels if needed
         x = self.channel_adapter(x)
         
-        # Ensure contiguous for MPS compatibility
-        x = x.contiguous()
+        # ViT backbone
+        outputs = self.vit(pixel_values=x)
         
-        # Get predictions based on backend
-        if self.backend == 'huggingface':
-            # HuggingFace ViTForImageClassification handles everything internally (MPS-safe!)
-            # Just like in the TFG project: predictions = net(images).logits
-            outputs = self.vit(pixel_values=x)
-            logits = outputs.logits  # (B, num_classes) - already processed!
-        else:
-            # torchvision and timm: extract features then classify
-            features = self.vit(x)  # (B, embed_dim)
-            features = features.contiguous()
-            logits = self.classifier(features)  # (B, num_classes)
+        # Get [CLS] token embedding
+        features = outputs.last_hidden_state[:, 0]
         
-        # Ensure output is contiguous
-        logits = logits.contiguous()
+        # Classification head
+        logits = self.head(features)
         
         return logits
     
     def freeze_backbone(self):
-        """Freeze ViT backbone parameters (keep classifier trainable)."""
-        if self.backend == 'huggingface':
-            # Freeze only the ViT encoder, keep classifier trainable
-            if hasattr(self.vit, 'vit'):
-                for param in self.vit.vit.parameters():
-                    param.requires_grad = False
-            # Channel adapter stays trainable
-        else:
-            for param in self.vit.parameters():
-                param.requires_grad = False
+        """Freeze ViT backbone parameters."""
+        for param in self.vit.parameters():
+            param.requires_grad = False
+        print("ViT backbone frozen")
     
     def unfreeze_backbone(self):
         """Unfreeze ViT backbone parameters."""
         for param in self.vit.parameters():
             param.requires_grad = True
-    
-    def get_attention_maps(self, x):
-        """
-        Extract attention maps from ViT for visualization.
-        
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, 9, H, W)
-            
-        Returns:
-            list: Attention maps from each transformer block
-        """
-        x = self.channel_adapter(x).contiguous()
-        
-        if self.backend == 'huggingface':
-            # HuggingFace ViTForImageClassification also supports output_attentions
-            outputs = self.vit(pixel_values=x, output_attentions=True)
-            return outputs.attentions  # Tuple of attention tensors from each layer
-        
-        attention_maps = []
-        
-        def hook_fn(module, input, output):
-            # Extract attention weights
-            if hasattr(output, 'attn'):
-                attention_maps.append(output.attn.detach())
-        
-        # Register hooks on transformer blocks
-        hooks = []
-        if self.backend == 'torchvision':
-            # torchvision uses encoder.layers
-            for block in self.vit.encoder.layers:
-                hooks.append(block.self_attention.register_forward_hook(hook_fn))
-        elif self.backend == 'timm':
-            # timm uses blocks
-            for block in self.vit.blocks:
-                hooks.append(block.attn.register_forward_hook(hook_fn))
-        
-        # Forward pass
-        _ = self.vit(x)
-        
-        # Remove hooks
-        for hook in hooks:
-            hook.remove()
-        
-        return attention_maps
+        print("ViT backbone unfrozen")
 
+
+def create_vit_model(config):
+    """
+    Create ViT model from configuration dictionary.
+    
+    Args:
+        config: Configuration dictionary with 'model' key
+    
+    Returns:
+        ViTClassifier instance
+    """
+    model_config = config['model']
+    
+    model = ViTClassifier(
+        model_name=model_config['name'],
+        num_classes=model_config['num_classes'],
+        pretrained=model_config['pretrained'],
+        input_channels=model_config['input_channels'],
+        dropout=model_config['dropout'],
+        head_hidden_dims=model_config.get('head_hidden_dims', [512, 256, 128]),
+        head_num_attention_heads=model_config.get('head_num_attention_heads', 8),
+        head_attention_dropout=model_config.get('head_attention_dropout', 0.1),
+        head_use_residual=model_config.get('head_use_residual', True)
+    )
+    
+    return model

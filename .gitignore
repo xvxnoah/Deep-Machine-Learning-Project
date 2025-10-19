@@ -4,66 +4,41 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+dist/
+build/
 
-# Virtual Environment
-venv/
-ENV/
-env/
-.venv
-
-# Jupyter Notebook
-.ipynb_checkpoints
+# Jupyter
+.ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Environment variables
+# Data
+DL_Project_Processed_Data/
+triplets/
+data/
+
+# Checkpoints and logs
+checkpoints/
+notebooks/checkpoints/
+notebooks/wandb/
+*.pt
+*.pth
+
+# Environment
 .env
+venv/
+env/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+
+# OS
 .DS_Store
-
-# Project specific
-checkpoints/
-*.pt
-*.pth
-*.ckpt
-wandb/
-analysis_results/
-processed_data/
-triplets/
-
-# Data (if large)
-# Uncomment if you don't want to track processed data
-# processed_data/
-# triplets/
-
-# Logs
-logs/
-*.log
-
-# Temporary files
-*.tmp
-tmp/
-temp/
+Thumbs.db
 
 # Nix
-/.direnv/
+flake.lock
+

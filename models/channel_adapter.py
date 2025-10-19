@@ -1,101 +1,72 @@
+"""
+Channel Adapter for Multi-Channel Medical Images
+
+This module adapts multi-channel inputs (e.g., 9-channel CT scans)
+to the 3-channel RGB format expected by pre-trained vision models.
+"""
+
 import torch
 import torch.nn as nn
 
 
-class ChannelAdapter(nn.Module):
-    """Adapts input channels from 9 to 3 for ViT compatibility."""
-    
-    def __init__(self, in_channels=9, out_channels=3, strategy='conv1x1'):
-        """
-        Args:
-            in_channels (int): Number of input channels (default: 9)
-            out_channels (int): Number of output channels (default: 3)
-            strategy (str): Adaptation strategy - 'conv1x1', 'linear_projection', or 'avg_pool'
-        """
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.strategy = strategy
-        
-        if strategy == 'conv1x1':
-            # Learnable 1×1 convolution to project channels
-            self.adapter = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True)
-            
-        elif strategy == 'linear_projection':
-            # Linear projection per spatial location
-            self.adapter = nn.Linear(in_channels, out_channels)
-            
-        elif strategy == 'avg_pool':
-            # Simple average pooling across channel groups
-            # Group 9 channels into 3 groups of 3 channels each
-            assert in_channels % out_channels == 0, "in_channels must be divisible by out_channels"
-            self.group_size = in_channels // out_channels
-            self.adapter = None  # No learnable parameters
-            
-        else:
-            raise ValueError(f"Unknown strategy: {strategy}. Choose from 'conv1x1', 'linear_projection', 'avg_pool'")
-    
-    def forward(self, x):
-        """
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, 9, H, W)
-            
-        Returns:
-            torch.Tensor: Output tensor of shape (B, 3, H, W)
-        """
-        # Ensure input is contiguous
-        x = x.contiguous()
-        
-        if self.strategy == 'conv1x1':
-            return self.adapter(x)
-        
-        elif self.strategy == 'linear_projection':
-            # Rearrange: (B, C, H, W) -> (B, H, W, C) -> linear -> (B, H, W, C') -> (B, C', H, W)
-            B, C, H, W = x.shape
-            x = x.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
-            x = self.adapter(x)  # (B, H, W, out_channels)
-            x = x.permute(0, 3, 1, 2).contiguous()  # (B, out_channels, H, W)
-            return x
-        
-        elif self.strategy == 'avg_pool':
-            # Average pool over channel groups
-            # Reshape (B, 9, H, W) -> (B, 3, 3, H, W) -> average -> (B, 3, H, W)
-            B, C, H, W = x.shape
-            x = x.contiguous().reshape(B, self.out_channels, self.group_size, H, W)
-            x = x.mean(dim=2)  # Average over group dimension
-            return x.contiguous()
-
-
-class PatchEmbeddingAdapter(nn.Module):
+class DeepConvAdapter(nn.Module):
     """
-    Alternative: Modify ViT's patch embedding layer to accept 9 channels directly.
-    This preserves more information but requires modifying the ViT architecture.
+    Deep convolutional channel adapter.
+    
+    Uses multiple convolutional layers with batch normalization and ReLU
+    to progressively reduce channels while learning spatial patterns.
+    
+    Architecture:
+        input_channels -> 64 -> 32 -> 16 -> 3 channels
+    
+    Args:
+        input_channels: Number of input channels (e.g., 9 for CT triplets)
     """
     
-    def __init__(self, img_size=224, patch_size=16, in_channels=9, embed_dim=768):
+    def __init__(self, input_channels=9):
         super().__init__()
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.num_patches = (img_size // patch_size) ** 2
         
-        # Modified patch embedding for 9 channels
-        self.proj = nn.Conv2d(
-            in_channels, embed_dim,
-            kernel_size=patch_size,
-            stride=patch_size
+        self.adapter = nn.Sequential(
+            # Layer 1: input_channels -> 64
+            nn.Conv2d(input_channels, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            
+            # Layer 2: 64 -> 32
+            nn.Conv2d(64, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            
+            # Layer 3: 32 -> 16
+            nn.Conv2d(32, 16, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            
+            # Layer 4: 16 -> 3 (RGB)
+            nn.Conv2d(16, 3, kernel_size=1, bias=False),
+            nn.BatchNorm2d(3)
         )
         
+        # Initialize weights
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Initialize weights using Kaiming initialization."""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+    
     def forward(self, x):
         """
+        Forward pass.
+        
         Args:
-            x (torch.Tensor): Input of shape (B, 9, H, W)
-            
+            x: Input tensor [batch_size, input_channels, height, width]
+        
         Returns:
-            torch.Tensor: Patch embeddings of shape (B, num_patches, embed_dim)
+            Adapted tensor [batch_size, 3, height, width]
         """
-        B, C, H, W = x.shape
-        x = self.proj(x)  # (B, embed_dim, H/patch_size, W/patch_size)
-        x = x.flatten(2)  # (B, embed_dim, num_patches)
-        x = x.transpose(1, 2).contiguous()  # (B, num_patches, embed_dim)
-        return x
-
+        return self.adapter(x)
