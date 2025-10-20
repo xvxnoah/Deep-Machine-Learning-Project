@@ -55,9 +55,23 @@ class Trainer:
         # Checkpointing
         self.checkpoint_dir = Path(config.get('checkpoint', {}).get('save_dir', 'checkpoints'))
         self.checkpoint_dir.mkdir(exist_ok=True, parents=True)
-        self.best_metric = -float('inf')
         self.best_metric_name = config.get('checkpoint', {}).get('metric_for_best', 'val_auc_roc_macro')
         self.save_mode = config.get('checkpoint', {}).get('mode', 'max')
+        
+        # Initialize best_metric according to save_mode so comparisons make sense
+        if self.save_mode == 'min':
+            self.best_metric = float('inf')
+        else:
+            self.best_metric = -float('inf')
+        
+        # Early stopping config (defaults under training.early_stopping)
+        es_cfg = config.get('training', {}).get('early_stopping', {})
+        self.early_stopping = bool(es_cfg.get('enabled', False))
+        self.early_stopping_patience = int(es_cfg.get('patience', 10))
+        self.early_stopping_min_delta = float(es_cfg.get('min_delta', 0.0))
+        # mode can override save_mode, but default to save_mode
+        self.early_stopping_mode = es_cfg.get('mode', self.save_mode)
+        self.no_improve_epochs = 0
         
         # Track training state
         self.current_epoch = 0
@@ -183,21 +197,36 @@ class Trainer:
                   f"Val F1:   {val_metrics.get('f1_macro', 0):.4f}")
             
             # Save checkpoint
-            current_metric = val_metrics.get(self.best_metric_name.replace('val_', ''), 0)
+            current_metric = val_metrics.get(self.best_metric_name.replace('val_', ''), None)
+            if current_metric is None:
+                current_metric = 0
+
+            # Determine whether this epoch improved the monitored metric
             is_best = False
-            
-            if self.save_mode == 'max':
-                if current_metric > self.best_metric:
-                    self.best_metric = current_metric
-                    is_best = True
+            improved = False
+            if self.early_stopping_mode == 'min':
+                if current_metric < self.best_metric - self.early_stopping_min_delta:
+                    improved = True
             else:
-                if current_metric < self.best_metric:
-                    self.best_metric = current_metric
-                    is_best = True
-            
-            # Save checkpoint
+                if current_metric > self.best_metric + self.early_stopping_min_delta:
+                    improved = True
+
+            if improved:
+                self.best_metric = current_metric
+                is_best = True
+                self.no_improve_epochs = 0
+            else:
+                # No improvement this epoch
+                self.no_improve_epochs += 1
+
+            # Save checkpoint (periodically or when new best)
             if epoch % self.config.get('checkpoint', {}).get('save_frequency', 5) == 0 or is_best:
                 self.save_checkpoint(epoch, is_best, val_metrics)
+
+            # Early stopping: stop if no improvement for configured patience
+            if self.early_stopping and self.no_improve_epochs >= self.early_stopping_patience:
+                print(f"\nEarly stopping triggered after {epoch} epochs (no improvement for {self.no_improve_epochs} epochs).")
+                break
         
         print(f"\n{'='*80}")
         print(f"Training Complete!")
@@ -233,7 +262,7 @@ class Trainer:
                 wandb.save(str(best_path))
     
     def load_checkpoint(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

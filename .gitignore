@@ -50,6 +50,7 @@ wandb/
 analysis_results/
 processed_data/
 triplets/
+pre-trained-model/
 
 # Data (if large)
 # Uncomment if you don't want to track processed data

@@ -1,6 +1,6 @@
 # Model Configuration
 model:
-  name: "google/vit-base-patch16-224"  # HuggingFace model name
+  name: "../pre-trained-model"  # HuggingFace model name
   pretrained: true
   num_classes: 5  # 5 hemorrhage subtypes
   input_channels: 9  # 3 slices × 3 window presets
@@ -18,19 +18,24 @@ data:
   train_split: "train"
   val_split: "val"
   test_split: "test"
-  batch_size: 32
-  num_workers: 8
-  pin_memory: false 
+  batch_size: 128
+  num_workers: 12
+  pin_memory: true
   
 # Training Configuration
 training:
-  epochs: 20
+  epochs: 100
   learning_rate: 0.0001  # 1e-4
   weight_decay: 0.00001  # 1e-5
   optimizer: "adamw"
   scheduler: "cosine"
-  warmup_epochs: 2
+  warmup_epochs: 5
   gradient_clip: 1.0
+  early_stopping:
+    enabled: true     # Enable early stopping
+    patience: 10       # Number of epochs with no improvement before stopping
+    min_delta: 0.0     # Minimum change to qualify as an improvement
+    mode: "max"       # Which direction constitutes improvement: 'max' or 'min'
   
 # Loss Configuration
 loss:

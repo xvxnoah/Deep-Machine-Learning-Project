@@ -194,7 +194,7 @@ class ViTTripletBiRNNClassifier(nn.Module):
 
     def __init__(
         self,
-        model_name='google/vit-base-patch16-224',
+        model_name='../pre-trained-model/',
         num_classes=5,
         pretrained=True,
         input_channels=9,
@@ -238,9 +238,9 @@ class ViTTripletBiRNNClassifier(nn.Module):
         self.sequence_pooling = sequence_pooling
 
         if pretrained:
-            self.vit = ViTModel.from_pretrained(model_name)
+            self.vit = ViTModel.from_pretrained(model_name, local_files_only=True, use_safetensors=True)
         else:
-            vit_config = ViTConfig.from_pretrained(model_name)
+            vit_config = ViTConfig.from_pretrained(model_name, local_files_only=True, use_safetensors=True)
             self.vit = ViTModel(vit_config)
 
         self.embed_dim = self.vit.config.hidden_size
