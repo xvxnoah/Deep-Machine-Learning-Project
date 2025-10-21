@@ -12,6 +12,7 @@ import torch.nn as nn
 from transformers import ViTModel
 from .channel_adapter import DeepConvAdapter
 from .classification_head import AttentionMLPHead
+from .simple_head import SimpleMLP
 
 
 class ViTClassifier(nn.Module):
@@ -44,6 +45,7 @@ class ViTClassifier(nn.Module):
         head_num_attention_heads=8,
         head_attention_dropout=0.1,
         head_use_residual=True,
+        use_simple_head=False,
         # Unused legacy parameters (kept for backward compatibility with old configs)
         channel_adaptation=None,
         backend=None,
@@ -53,6 +55,7 @@ class ViTClassifier(nn.Module):
         
         self.num_classes = num_classes
         self.input_channels = input_channels
+        self.use_simple_head = use_simple_head
         
         # Channel adapter (9 -> 3 channels)
         if input_channels != 3:
@@ -70,16 +73,23 @@ class ViTClassifier(nn.Module):
         
         self.embed_dim = self.vit.config.hidden_size
         
-        # Classification head
-        self.head = AttentionMLPHead(
-            input_dim=self.embed_dim,
-            num_classes=num_classes,
-            hidden_dims=head_hidden_dims,
-            num_attention_heads=head_num_attention_heads,
-            attention_dropout=head_attention_dropout,
-            dropout=dropout,
-            use_residual=head_use_residual
-        )
+        # Classification head - use simple or complex
+        if use_simple_head:
+            self.head = SimpleMLP(
+                input_dim=self.embed_dim,
+                num_classes=num_classes,
+                dropout=dropout
+            )
+        else:
+            self.head = AttentionMLPHead(
+                input_dim=self.embed_dim,
+                num_classes=num_classes,
+                hidden_dims=head_hidden_dims,
+                num_attention_heads=head_num_attention_heads,
+                attention_dropout=head_attention_dropout,
+                dropout=dropout,
+                use_residual=head_use_residual
+            )
         
     def forward(self, x):
         """
@@ -136,6 +146,7 @@ def create_vit_model(config):
         pretrained=model_config['pretrained'],
         input_channels=model_config['input_channels'],
         dropout=model_config['dropout'],
+        use_simple_head=model_config.get('use_simple_head', False),
         head_hidden_dims=model_config.get('head_hidden_dims', [512, 256, 128]),
         head_num_attention_heads=model_config.get('head_num_attention_heads', 8),
         head_attention_dropout=model_config.get('head_attention_dropout', 0.1),
