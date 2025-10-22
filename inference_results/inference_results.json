@@ -1,0 +1,145 @@
+{
+  "model_path": "best_model_full.pt",
+  "best_threshold": 0.07,
+  "test_metrics_default_threshold": {
+    "auc_roc_epidural": 0.8949124270225188,
+    "auc_roc_intraparenchymal": 0.9726675680896272,
+    "auc_roc_intraventricular": 0.994671201814059,
+    "auc_roc_subarachnoid": 0.9268244575936884,
+    "auc_roc_subdural": 0.9056829511465604,
+    "auc_roc_macro": 0.9389517211332908,
+    "auc_roc_micro": 0.9572026585392722,
+    "auc_roc_weighted": 0.9457803999210035,
+    "auc_roc_healthy": 0.9646927374301677,
+    "auc_roc_multiple": 0.7411731843575419,
+    "precision_epidural": 0.8,
+    "recall_epidural": 0.36363636363636365,
+    "f1_epidural": 0.5000000000000001,
+    "precision_intraparenchymal": 0.8983050847457628,
+    "recall_intraparenchymal": 0.8548387096774194,
+    "f1_intraparenchymal": 0.8760330578512397,
+    "precision_intraventricular": 0.9111111111111111,
+    "recall_intraventricular": 0.8367346938775511,
+    "f1_intraventricular": 0.8723404255319148,
+    "precision_subarachnoid": 0.7777777777777778,
+    "recall_subarachnoid": 0.7,
+    "f1_subarachnoid": 0.7368421052631577,
+    "precision_subdural": 0.7818181818181819,
+    "recall_subdural": 0.7288135593220338,
+    "f1_subdural": 0.7543859649122807,
+    "precision_macro": 0.8338024310905666,
+    "recall_macro": 0.6968046653026736,
+    "f1_macro": 0.7479203107117186,
+    "precision_micro": 0.8394495412844036,
+    "recall_micro": 0.7593360995850622,
+    "f1_micro": 0.7973856209150327,
+    "precision_weighted": 0.8378975066083865,
+    "recall_weighted": 0.7593360995850622,
+    "f1_weighted": 0.7936847663213887,
+    "accuracy_exact": 0.7030567685589519,
+    "accuracy_hamming": 0.9187772925764193,
+    "avg_num_positives_pred": 0.9519650655021834,
+    "avg_num_positives_true": 1.0524017467248907
+  },
+  "test_metrics_best_threshold": {
+    "precision_macro_best": 0.7676861105077656,
+    "recall_macro_best": 0.8407427473201121,
+    "f1_macro_best": 0.7940498764020838,
+    "precision_micro_best": 0.735191637630662,
+    "recall_micro_best": 0.8755186721991701,
+    "f1_micro_best": 0.7992424242424242,
+    "precision_weighted_best": 0.7433687847932704,
+    "recall_weighted_best": 0.8755186721991701,
+    "f1_weighted_best": 0.8009683512427707,
+    "accuracy_exact_best": 0.6462882096069869,
+    "accuracy_hamming_best": 0.9074235807860263,
+    "precision_epidural_best": 0.875,
+    "recall_epidural_best": 0.6363636363636364,
+    "f1_epidural_best": 0.7368421052631579,
+    "precision_intraparenchymal_best": 0.8235294117647058,
+    "recall_intraparenchymal_best": 0.9032258064516129,
+    "f1_intraparenchymal_best": 0.8615384615384616,
+    "precision_intraventricular_best": 0.8448275862068966,
+    "recall_intraventricular_best": 1.0,
+    "f1_intraventricular_best": 0.9158878504672897,
+    "precision_subarachnoid_best": 0.6621621621621622,
+    "recall_subarachnoid_best": 0.8166666666666667,
+    "f1_subarachnoid_best": 0.7313432835820896,
+    "precision_subdural_best": 0.6329113924050633,
+    "recall_subdural_best": 0.847457627118644,
+    "f1_subdural_best": 0.7246376811594203
+  },
+  "config": {
+    "model": {
+      "name": "google/vit-base-patch16-224",
+      "pretrained": true,
+      "num_classes": 5,
+      "input_channels": 9,
+      "slice_channels": 3,
+      "dropout": 0.1,
+      "backend": "torchvision",
+      "unfreeze_layers": -1,
+      "rnn_hidden_size": 512,
+      "rnn_num_layers": 1,
+      "rnn_dropout": 0.0,
+      "sequence_pooling": "last"
+    },
+    "data": {
+      "data_root": "DL_Project_Processed_Data",
+      "train_split": "train",
+      "val_split": "val",
+      "test_split": "test",
+      "batch_size": 32,
+      "num_workers": 12,
+      "pin_memory": true
+    },
+    "training": {
+      "epochs": 50,
+      "learning_rate": 0.0001,
+      "weight_decay": 1e-05,
+      "optimizer": "adamw",
+      "scheduler": "cosine",
+      "warmup_epochs": 5,
+      "gradient_clip": 1.0,
+      "early_stopping": {
+        "enabled": true,
+        "patience": 10,
+        "min_delta": 0.0,
+        "mode": "max"
+      }
+    },
+    "loss": {
+      "type": "weighted_bce",
+      "pos_weight_strategy": "inverse_freq"
+    },
+    "metrics": {
+      "track_per_class": true,
+      "metrics_list": [
+        "auc_roc",
+        "precision",
+        "recall",
+        "f1_score",
+        "accuracy"
+      ],
+      "threshold": 0.5
+    },
+    "wandb": {
+      "project": "Deep Machine Learning Project",
+      "entity": null,
+      "log_interval": 10,
+      "log_model": true,
+      "watch_model": true
+    },
+    "checkpoint": {
+      "save_dir": "checkpoints",
+      "save_best": true,
+      "metric_for_best": "val_auc_roc_macro",
+      "mode": "max"
+    },
+    "hardware": {
+      "device": "auto",
+      "seed": 5252
+    }
+  },
+  "inference_time": "inference_results"
+}

@@ -7,7 +7,7 @@ model:
   slice_channels: 3  # Channels per slice fed to the ViT backbone
   dropout: 0.1
   backend: "torchvision"  # Options: huggingface, torchvision (BETTER for multi-label), timm
-  unfreeze_layers: 0  # Freeze backbone, train only classifier + channel adapter (~5M params like colleague)
+  unfreeze_layers: -1  # Freeze backbone, train only classifier + channel adapter (~5M params like colleague)
   rnn_hidden_size: 512
   rnn_num_layers: 1
   rnn_dropout: 0.0
@@ -19,7 +19,7 @@ data:
   train_split: "train"
   val_split: "val"
   test_split: "test"
-  batch_size: 128
+  batch_size: 32
   num_workers: 12
   pin_memory: true
   
