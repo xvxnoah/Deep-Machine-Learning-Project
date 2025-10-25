@@ -14,7 +14,7 @@ model:
   
 # Data Configuration
 data:
-  data_root: "processed_data"
+  data_root: "DL_Project_Processed_Data"
   train_split: "train"
   val_split: "val"
   test_split: "test"
