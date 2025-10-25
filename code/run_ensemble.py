@@ -1,20 +1,3 @@
-#!/usr/bin/env python3
-"""
-Ensemble Evaluation Script for ViT ICH Classification
-
-This script evaluates ensemble models combining full ViT and ViT-RNN models.
-
-Usage:
-    # Basic ensemble with average combination
-    python run_ensemble.py --full_vit_path best_model_full.pt --rnn_vit_path best_model_rnn.pt
-
-    # Weighted ensemble
-    python run_ensemble.py --full_vit_path best_model_full.pt --rnn_vit_path best_model_rnn.pt --method weighted --weights 0.6 0.4
-
-    # Max confidence ensemble
-    python run_ensemble.py --full_vit_path best_model_full.pt --rnn_vit_path best_model_rnn.pt --method max_confidence
-"""
-
 import os
 import sys
 import json

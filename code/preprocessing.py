@@ -3,7 +3,6 @@ import pydicom
 import matplotlib.pyplot as plt
 import math
 
-
 def convert_file_to_3channel(dcm_path):
     # Loading the file data
     ds = pydicom.dcmread(dcm_path)

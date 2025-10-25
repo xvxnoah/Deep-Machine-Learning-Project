@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-ViT Training Script for Intracranial Hemorrhage Classification
-
-This script trains a Vision Transformer model for multi-label classification
-of intracranial hemorrhage subtypes using processed CT scan data.
-
-Usage:
-    python train_vit.py --config configs/base_config.yaml
-"""
-
 import os
 import sys
 import json
@@ -174,8 +163,6 @@ def main():
         print(f"Unfreeze layers: {unfreeze_val} (last N layers)")
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
-    if trainable_params < 100000:  # Less than 100K
-        print("⚠️  WARNING: Very few trainable parameters! Check unfreezing logic.")
 
     # Loss function
     criterion = WeightedBCELoss(pos_weights=class_weights)
