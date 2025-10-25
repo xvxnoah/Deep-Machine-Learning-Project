@@ -49,9 +49,8 @@ def parse_args():
 
 def evaluate_individual_models(full_vit_path, rnn_vit_path, test_loader, device):
     """Evaluate individual models for comparison."""
-    print("\n" + "="*60)
-    print("EVALUATING INDIVIDUAL MODELS")
-    print("="*60)
+    print("\nEvaluating Individual Models")
+    print("-" * 30)
 
     results = {}
 
@@ -90,7 +89,7 @@ def evaluate_single_model(model_path, model_class, test_loader, device):
     if model_class == ViTTripletBiRNNClassifier:
         # Override model_name to avoid relative path issues in stored config
         model_name_override = 'pre-trained-model'
-        print(f"  ✓ Overriding model_name to: {model_name_override}")
+        print(f"  Overriding model_name to: {model_name_override}")
 
         model = ViTTripletBiRNNClassifier(
             model_name=model_name_override,  # Use override instead of config['model']['name']
@@ -141,9 +140,8 @@ def evaluate_single_model(model_path, model_class, test_loader, device):
 
 def evaluate_ensemble(ensemble, test_loader, device):
     """Evaluate ensemble model."""
-    print("\n" + "="*60)
-    print("EVALUATING ENSEMBLE MODEL")
-    print("="*60)
+    print("\nEvaluating Ensemble Model")
+    print("-" * 25)
 
     ensemble.eval()
     metrics_calculator = MetricsCalculator(num_classes=5)
@@ -203,14 +201,13 @@ def create_comparison_plot(individual_results, ensemble_results, output_dir):
     plt.savefig(os.path.join(output_dir, 'ensemble_comparison.png'), dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"✓ Comparison plot saved to: {os.path.join(output_dir, 'ensemble_comparison.png')}")
+    print(f"Comparison plot saved to: {os.path.join(output_dir, 'ensemble_comparison.png')}")
 
 
 def run_comprehensive_inference(ensemble, test_loader, device, output_dir):
     """Run comprehensive inference with threshold optimization and detailed plots."""
-    print("\n" + "="*60)
-    print("RUNNING COMPREHENSIVE INFERENCE ON TEST SET")
-    print("="*60)
+    print("\nRunning Comprehensive Inference on Test Set")
+    print("-" * 42)
 
     ensemble.eval()
 
@@ -258,82 +255,9 @@ def run_comprehensive_inference(ensemble, test_loader, device, output_dir):
     return predictions, targets, logits, probabilities, threshold_independent_metrics
 
 
-def find_best_threshold(logits, targets, device):
-    """Find the best threshold by optimizing Youden's J statistic (Sensitivity + Specificity - 1)."""
-    print("\n" + "="*60)
-    print("FINDING BEST THRESHOLD (Youden's J Optimization)")
-    print("="*60)
-
-    # Convert logits to probabilities
-    probabilities = torch.sigmoid(torch.from_numpy(logits)).numpy()
-
-    # Initialize best metrics
-    best_threshold = 0.5
-    best_youden = -1.0  # Youden's J ranges from -1 to 1
-    best_acc, best_sens, best_spec, best_prec, best_npv, best_f1 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-
-    # Test all thresholds
-    for threshold in tqdm(np.arange(0.0, 1.01, 0.01), desc="[Threshold Optimization]"):
-        binary_outputs = (probabilities > threshold).astype(int)
-        acc, sens, spec, prec, npv, f1, youden_scores = [], [], [], [], [], [], []
-
-        for i in range(binary_outputs.shape[1]):
-            outputs = binary_outputs[:, i]
-            targets_i = targets[:, i]
-            cm = confusion_matrix(targets_i, outputs)
-            tn, fp, fn, tp = cm.ravel()
-            acc.append((tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) != 0 else 0)
-            sens.append(tp / (tp + fn) if (tp + fn) != 0 else 0)
-            spec.append(tn / (tn + fp) if (tn + fp) != 0 else 0)
-            prec.append(tp / (tp + fp) if (tp + fp) != 0 else 0)
-            npv.append(tn / (tn + fn) if (tn + fn) != 0 else 0)
-            f1.append(2 * (prec[-1] * sens[-1]) / (prec[-1] + sens[-1]) if (prec[-1] + sens[-1]) != 0 else 0)
-
-            # Calculate Youden's J for this class: sensitivity + specificity - 1
-            youden = sens[-1] + spec[-1] - 1
-            youden_scores.append(youden)
-
-        mean_acc = np.mean(acc)
-        mean_sens = np.mean(sens)
-        mean_spec = np.mean(spec)
-        mean_prec = np.mean(prec)
-        mean_npv = np.mean(npv)
-        mean_f1 = np.mean(f1)
-        mean_youden = np.mean(youden_scores)
-
-        # Use Youden's J statistic as optimization criterion
-        if mean_youden > best_youden:
-            best_youden = mean_youden
-            best_acc = mean_acc
-            best_sens = mean_sens
-            best_spec = mean_spec
-            best_prec = mean_prec
-            best_npv = mean_npv
-            best_f1 = mean_f1
-            best_threshold = threshold
-
-    print(f"Best Threshold: {best_threshold:.4f} | Youden's J: {best_youden:.4f}")
-    print(f"Best Accuracy: {best_acc:.4f} | Best Sensitivity: {best_sens:.4f} | Best Specificity: {best_spec:.4f}")
-    print(f"Best Precision: {best_prec:.4f} | Best F1 Score: {best_f1:.4f}")
-
-    # Generate confusion matrices for each subtype using the best threshold
-    binary_outputs = (probabilities > best_threshold).astype(int)
-    print("\nConfusion Matrices for each subtype (Best Threshold = {:.2f}):".format(best_threshold))
-    class_names = ['Epidural', 'Intraparenchymal', 'Intraventricular', 'Subarachnoid', 'Subdural']
-    for i in range(binary_outputs.shape[1]):
-        outputs = binary_outputs[:, i]
-        targets_i = targets[:, i]
-        cm = confusion_matrix(targets_i, outputs)
-        print(f"\nConfusion Matrix for {class_names[i]}:")
-        print("Predicted |  0   |  1   ")
-        print("Actual   |------|------")
-        print(f"   0     | {cm[0,0]:4d} | {cm[0,1]:4d} ")
-        print(f"   1     | {cm[1,0]:4d} | {cm[1,1]:4d} ")
-
-    return best_threshold, binary_outputs
 
 
-def calculate_threshold_metrics(predictions, targets, threshold_name=""):
+def calculate_threshold_metrics(predictions, targets):
     """Calculate metrics for given predictions and targets."""
     from sklearn.metrics import precision_recall_fscore_support, accuracy_score, hamming_loss
 
@@ -363,23 +287,23 @@ def calculate_threshold_metrics(predictions, targets, threshold_name=""):
     # Per-class metrics
     class_names = ['epidural', 'intraparenchymal', 'intraventricular', 'subarachnoid', 'subdural']
     metrics = {
-        f'precision_macro{threshold_name}': precision_macro,
-        f'recall_macro{threshold_name}': recall_macro,
-        f'f1_macro{threshold_name}': f1_macro,
-        f'precision_micro{threshold_name}': p_micro,
-        f'recall_micro{threshold_name}': r_micro,
-        f'f1_micro{threshold_name}': f1_micro,
-        f'precision_weighted{threshold_name}': p_weighted,
-        f'recall_weighted{threshold_name}': r_weighted,
-        f'f1_weighted{threshold_name}': f1_weighted,
-        f'accuracy_exact{threshold_name}': exact_match_acc,
-        f'accuracy_hamming{threshold_name}': hamming_acc,
+        'precision_macro': precision_macro,
+        'recall_macro': recall_macro,
+        'f1_macro': f1_macro,
+        'precision_micro': p_micro,
+        'recall_micro': r_micro,
+        'f1_micro': f1_micro,
+        'precision_weighted': p_weighted,
+        'recall_weighted': r_weighted,
+        'f1_weighted': f1_weighted,
+        'accuracy_exact': exact_match_acc,
+        'accuracy_hamming': hamming_acc,
     }
 
     for i, name in enumerate(class_names):
-        metrics[f'precision_{name}{threshold_name}'] = precision[i]
-        metrics[f'recall_{name}{threshold_name}'] = recall[i]
-        metrics[f'f1_{name}{threshold_name}'] = f1[i]
+        metrics[f'precision_{name}'] = precision[i]
+        metrics[f'recall_{name}'] = recall[i]
+        metrics[f'f1_{name}'] = f1[i]
 
     return metrics
 
@@ -439,81 +363,9 @@ def create_simple_auc_roc_curves(targets, probabilities, output_dir):
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"✓ Simple AUC-ROC curves plot saved to: {plot_path}")
+    print(f"Simple AUC-ROC curves plot saved to: {plot_path}")
 
 
-def create_auc_roc_curves_with_thresholds(targets, probabilities, output_dir, default_threshold=0.5, best_threshold=None):
-    """Create AUC-ROC curves plot with operating points marked."""
-    fig, ax = plt.subplots(figsize=(12, 8))
-
-    # Colors for different classes
-    colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f39c12', '#1abc9c', '#e67e22']
-
-    # Plot individual hemorrhage types (first 5 classes)
-    class_names = ['Epidural', 'Intraparenchymal', 'Intraventricular', 'Subarachnoid', 'Subdural']
-    class_keys = ['epidural', 'intraparenchymal', 'intraventricular', 'subarachnoid', 'subdural']
-
-    for i, (name, key) in enumerate(zip(class_names, class_keys)):
-        # Calculate ROC curve
-        fpr, tpr, thresholds = roc_curve(targets[:, i], probabilities[:, i])
-        roc_auc = auc(fpr, tpr)
-
-        # Plot ROC curve
-        ax.plot(fpr, tpr, color=colors[i], linewidth=2, alpha=0.8,
-                label=f'{name} (AUC = {roc_auc:.4f})')
-
-        # Mark default threshold operating point (red squares)
-        threshold_idx = np.argmin(np.abs(thresholds - default_threshold))
-        ax.scatter(fpr[threshold_idx], tpr[threshold_idx], color='red',
-                  marker='s', s=100, edgecolor='black', linewidth=2,
-                  label=f'Default (0.5)' if i == 0 else "")
-
-        # Mark best threshold operating point (blue circles)
-        if best_threshold is not None:
-            threshold_idx = np.argmin(np.abs(thresholds - best_threshold))
-            ax.scatter(fpr[threshold_idx], tpr[threshold_idx], color='blue',
-                      marker='o', s=100, edgecolor='black', linewidth=2,
-                      label=f'Optimal ({best_threshold:.2f})' if i == 0 else "")
-
-    # Plot healthy cases (no hemorrhages)
-    healthy_targets = (targets.sum(axis=1) == 0).astype(int)
-    healthy_probs = 1 - probabilities.max(axis=1)  # Higher when all probs are low
-    fpr, tpr, thresholds = roc_curve(healthy_targets, healthy_probs)
-    roc_auc = auc(fpr, tpr)
-    ax.plot(fpr, tpr, color=colors[5], linewidth=2, alpha=0.8,
-            label=f'Healthy (AUC = {roc_auc:.4f})')
-
-    # Plot multiple hemorrhages
-    multiple_targets = (targets.sum(axis=1) > 1).astype(int)
-    multiple_probs = probabilities.max(axis=1)  # Higher when at least one prob is high
-    fpr, tpr, thresholds = roc_curve(multiple_targets, multiple_probs)
-    roc_auc = auc(fpr, tpr)
-    ax.plot(fpr, tpr, color=colors[6], linewidth=2, alpha=0.8,
-            label=f'Multiple (AUC = {roc_auc:.4f})')
-
-    # Plot diagonal reference line
-    ax.plot([0, 1], [0, 1], color='gray', linewidth=1, linestyle='--', alpha=0.7, label='Random')
-
-    # Customize plot
-    ax.set_xlabel('False Positive Rate', fontsize=14, fontweight='bold')
-    ax.set_ylabel('True Positive Rate', fontsize=14, fontweight='bold')
-    title = 'ROC Curves with Operating Points'
-    if best_threshold is not None:
-        title += f' (Default: {default_threshold}, Optimal: {best_threshold:.2f})'
-    ax.set_title(title, fontsize=16, fontweight='bold')
-    ax.set_xlim([0, 1])
-    ax.set_ylim([0, 1.05])
-    ax.grid(True, alpha=0.3)
-
-    # Legend
-    ax.legend(loc='lower right', fontsize=10, framealpha=0.9)
-
-    plt.tight_layout()
-    plot_path = os.path.join(output_dir, 'auc_roc_curves_with_thresholds.png')
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    plt.close()
-
-    print(f"✓ AUC-ROC curves with thresholds plot saved to: {plot_path}")
 
 
 def create_per_class_metrics_plot(metrics, output_dir):
@@ -521,20 +373,10 @@ def create_per_class_metrics_plot(metrics, output_dir):
     class_names_plot = ['Epidural', 'Intraparenchymal', 'Intraventricular', 'Subarachnoid', 'Subdural']
     class_names_key = ['epidural', 'intraparenchymal', 'intraventricular', 'subarachnoid', 'subdural']
 
-    # Extract metrics (handle both formats: with and without suffix)
-    def get_metric_value(metric_name):
-        # Try with suffix first (e.g., precision_epidural_default)
-        if f'{metric_name}_default' in metrics:
-            return metrics[f'{metric_name}_default']
-        # Fall back to without suffix (e.g., precision_epidural)
-        elif metric_name in metrics:
-            return metrics[metric_name]
-        else:
-            return 0.0  # Default fallback
-
-    precisions = [get_metric_value(f'precision_{name}') for name in class_names_key]
-    recalls = [get_metric_value(f'recall_{name}') for name in class_names_key]
-    f1_scores = [get_metric_value(f'f1_{name}') for name in class_names_key]
+    # Extract metrics
+    precisions = [metrics.get(f'precision_{name}', 0.0) for name in class_names_key]
+    recalls = [metrics.get(f'recall_{name}', 0.0) for name in class_names_key]
+    f1_scores = [metrics.get(f'f1_{name}', 0.0) for name in class_names_key]
 
     # Plot
     x = np.arange(len(class_names_plot))
@@ -559,7 +401,7 @@ def create_per_class_metrics_plot(metrics, output_dir):
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"✓ Per-class metrics plot saved to: {plot_path}")
+    print(f"Per-class metrics plot saved to: {plot_path}")
 
 
 def main():
@@ -571,7 +413,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     print("Ensemble Evaluation for ICH Classification")
-    print("=" * 50)
+    print("-" * 42)
     print(f"Full ViT model: {args.full_vit_path}")
     print(f"ViT-RNN model: {args.rnn_vit_path}")
     print(f"Ensemble method: {args.method}")
@@ -620,21 +462,14 @@ def main():
 
     # Calculate metrics for default threshold (0.5)
     default_predictions = (probabilities >= 0.5).astype(int)
-    default_threshold_metrics = calculate_threshold_metrics(default_predictions, targets, threshold_name="_default")
-
-    # Find best threshold using Youden's J optimization
-    best_threshold, best_predictions = find_best_threshold(logits, targets, device)
-
-    # Calculate metrics for best threshold
-    best_threshold_metrics = calculate_threshold_metrics(best_predictions, targets, threshold_name="_best")
+    default_threshold_metrics = calculate_threshold_metrics(default_predictions, targets)
 
     # Create comparison plot with individual models
-    create_comparison_plot(individual_results, default_threshold_metrics, output_dir)
+    create_comparison_plot(individual_results, threshold_independent_metrics, output_dir)
 
     # Print results comparison
-    print("\n" + "="*80)
-    print("ENSEMBLE RESULTS COMPARISON")
-    print("="*80)
+    print("\nEnsemble Results Comparison")
+    print("-" * 26)
 
     if individual_results['full_vit']:
         print(f"Full ViT AUC-ROC Macro: {individual_results['full_vit']['auc_roc_macro']:.4f}")
@@ -646,14 +481,9 @@ def main():
     print(f"  AUC-ROC Micro: {threshold_independent_metrics['auc_roc_micro']:.4f}")
 
     print(f"\nEnsemble Default Threshold (0.5):")
-    print(f"  F1 (Macro):           {default_threshold_metrics['f1_macro_default']:.4f}")
-    print(f"  Exact Match Accuracy: {default_threshold_metrics['accuracy_exact_default']:.4f}")
-    print(f"  Hamming Accuracy:     {default_threshold_metrics['accuracy_hamming_default']:.4f}")
-
-    print(f"\nEnsemble Best Threshold ({best_threshold:.2f}):")
-    print(f"  F1 (Macro):           {best_threshold_metrics['f1_macro_best']:.4f}")
-    print(f"  Exact Match Accuracy: {best_threshold_metrics['accuracy_exact_best']:.4f}")
-    print(f"  Hamming Accuracy:     {best_threshold_metrics['accuracy_hamming_best']:.4f}")
+    print(f"  F1 (Macro):           {default_threshold_metrics['f1_macro']:.4f}")
+    print(f"  Exact Match Accuracy: {default_threshold_metrics['accuracy_exact']:.4f}")
+    print(f"  Hamming Accuracy:     {default_threshold_metrics['accuracy_hamming']:.4f}")
 
     # Calculate improvement over best individual model
     individual_scores = [r['auc_roc_macro'] for r in individual_results.values() if r is not None]
@@ -665,7 +495,6 @@ def main():
     # Create comprehensive plots
     print("\nCreating comprehensive plots...")
     create_simple_auc_roc_curves(targets, probabilities, output_dir)
-    create_auc_roc_curves_with_thresholds(targets, probabilities, output_dir, 0.5, best_threshold)
     create_per_class_metrics_plot(default_threshold_metrics, output_dir)
 
     # Save comprehensive results
@@ -685,9 +514,6 @@ def main():
                                                  for k, v in threshold_independent_metrics.items()},
         'ensemble_metrics_default_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
                                              for k, v in default_threshold_metrics.items()},
-        'ensemble_metrics_best_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
-                                           for k, v in best_threshold_metrics.items()},
-        'best_threshold': float(best_threshold),
         'config': config
     }
 
@@ -695,35 +521,26 @@ def main():
     with open(results_path, 'w') as f:
         json.dump(results, f, indent=2)
 
-    print(f"\n✓ Comprehensive results saved to: {results_path}")
-    print(f"✓ All outputs saved to: {output_dir}")
+    print(f"\nComprehensive results saved to: {results_path}")
+    print(f"All outputs saved to: {output_dir}")
 
     # Final summary
-    print("\n" + "="*80)
-    print("ENSEMBLE EVALUATION SUMMARY")
-    print("="*80)
+    print("\nEnsemble Evaluation Summary")
+    print("-" * 27)
     print(f"Model Type: Ensemble ({args.method})")
     print(f"Full ViT: {args.full_vit_path}")
     print(f"RNN ViT: {args.rnn_vit_path}")
     print(f"Weights: {args.weights}")
     print(f"Samples: {len(test_dataset)}")
-    print(f"Best Threshold: {best_threshold:.4f}")
 
     print(f"\nAUC-ROC (threshold-independent):")
     print(f"  Macro: {threshold_independent_metrics['auc_roc_macro']:.4f}")
     print(f"  Micro: {threshold_independent_metrics['auc_roc_micro']:.4f}")
 
     print(f"\nDefault Threshold (0.5):")
-    print(f"  F1 (Macro):           {default_threshold_metrics['f1_macro_default']:.4f}")
-    print(f"  Exact Match Accuracy: {default_threshold_metrics['accuracy_exact_default']:.4f}")
-    print(f"  Hamming Accuracy:     {default_threshold_metrics['accuracy_hamming_default']:.4f}")
-
-    print(f"\nBest Threshold ({best_threshold:.2f}):")
-    print(f"  F1 (Macro):           {best_threshold_metrics['f1_macro_best']:.4f}")
-    print(f"  Exact Match Accuracy: {best_threshold_metrics['accuracy_exact_best']:.4f}")
-    print(f"  Hamming Accuracy:     {best_threshold_metrics['accuracy_hamming_best']:.4f}")
-
-    print("="*80)
+    print(f"  F1 (Macro):           {default_threshold_metrics['f1_macro']:.4f}")
+    print(f"  Exact Match Accuracy: {default_threshold_metrics['accuracy_exact']:.4f}")
+    print(f"  Hamming Accuracy:     {default_threshold_metrics['accuracy_hamming']:.4f}")
 
 
 if __name__ == '__main__':
