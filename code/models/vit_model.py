@@ -30,7 +30,7 @@ class ViTClassifier(nn.Module):
             input_channels (int): Number of input channels (9 for our case)
             channel_adaptation (str): Strategy for 9→3 channel adaptation
             dropout (float): Dropout rate for classification head
-            backend (str): 'huggingface', 'torchvision', or 'timm'
+            backend (str): 'huggingface' or 'torchvision'
             slice_channels (int): Channels per slice for sequence processing (3)
             unfreeze_layers (int): Number of transformer layers to unfreeze from end (0 = freeze all, -1 = unfreeze all)
         """
@@ -42,11 +42,9 @@ class ViTClassifier(nn.Module):
         self.slice_channels = slice_channels
         self.unfreeze_layers = unfreeze_layers
 
-        # Check if we should process as sequences (like the RNN version)
         self.process_sequences = (input_channels > 3 and input_channels % slice_channels == 0)
         if self.process_sequences:
             self.num_slices = input_channels // slice_channels
-            print(f"✓ ViT will process {self.num_slices} slices per sample (sequence modeling)")
         else:
             self.num_slices = 1
 
@@ -76,7 +74,6 @@ class ViTClassifier(nn.Module):
         # Load pretrained ViT
         if backend == 'huggingface':
             if pretrained:
-                # Use ViTModel instead of ViTForImageClassification for better control
                 self.vit = ViTModel.from_pretrained(model_name)
             else:
                 config = ViTConfig.from_pretrained(model_name)
@@ -84,7 +81,7 @@ class ViTClassifier(nn.Module):
 
             self.embed_dim = self.vit.config.hidden_size
 
-            # Custom multi-label classification head (better than built-in single-label head)
+            # Custom multi-label classification head
             # Input dimension depends on whether we process sequences
             classifier_input_dim = self.embed_dim * self.num_slices if self.process_sequences else self.embed_dim
 
@@ -107,18 +104,8 @@ class ViTClassifier(nn.Module):
             # Remove the classification head
             self.embed_dim = self.vit.heads.head.in_features
             self.vit.heads = nn.Identity()
-            
-        elif backend == 'timm':
-            # Use timm ViT
-            import timm
-            self.vit = timm.create_model(
-                model_name,
-                pretrained=pretrained,
-                num_classes=0,  # Remove classification head
-            )
-            self.embed_dim = self.vit.num_features
         else:
-            raise ValueError(f"Unknown backend: {backend}. Choose 'huggingface', 'torchvision', or 'timm'")
+            raise ValueError(f"Unknown backend: {backend}. Choose 'huggingface' or 'torchvision'")
         
         # Custom classification head for multi-label classification
         # Input dimension depends on whether we process sequences
@@ -194,7 +181,7 @@ class ViTClassifier(nn.Module):
                 features = features.contiguous()
                 logits = self.classifier(features)  # (B, num_classes)
             else:
-                # torchvision and timm: extract features then classify
+                # torchvision extract features then classify
                 features = self.vit(x)  # (B, embed_dim)
                 features = features.contiguous()
                 logits = self.classifier(features)  # (B, num_classes)
@@ -207,20 +194,15 @@ class ViTClassifier(nn.Module):
     def freeze_backbone(self):
         """Freeze ViT backbone parameters (keep classifier trainable), with optional partial unfreezing."""
         # First freeze everything in the ViT backbone
-        if self.backend == 'huggingface':
-            # Freeze the entire ViT model initially
-            for param in self.vit.parameters():
-                param.requires_grad = False
-        else:
-            for param in self.vit.parameters():
-                param.requires_grad = False
+        for param in self.vit.parameters():
+            param.requires_grad = False
 
-        # Unfreeze the last N transformer layers if requested
+        # Unfreeze the last N transformer layers
         if self.unfreeze_layers != 0:  # 0 = freeze all, -1 = unfreeze all, >0 = unfreeze N layers
             if self.unfreeze_layers == -1:
-                print(f"🔧 Unfreezing ALL transformer layers (full fine-tuning)...")
+                print(f"Unfreezing all transformer layers (full fine-tuning)...")
             else:
-                print(f"🔧 Attempting to unfreeze {self.unfreeze_layers} layers...")
+                print(f"Unfreezing {self.unfreeze_layers} layers...")
 
             if self.backend == 'huggingface':
                 # For HuggingFace: unfreeze last N layers in the encoder
@@ -237,7 +219,7 @@ class ViTClassifier(nn.Module):
                         start_unfreeze = max(0, num_layers - self.unfreeze_layers)
                         layers_to_unfreeze = self.unfreeze_layers
 
-                    print(f"✓ Unfreezing {layers_to_unfreeze} transformer layers "
+                    print(f"Unfreezing {layers_to_unfreeze} transformer layers "
                           f"({start_unfreeze} to {num_layers-1})")
 
                     unfrozen_count = 0
@@ -245,11 +227,11 @@ class ViTClassifier(nn.Module):
                         for param in layers[i].parameters():
                             param.requires_grad = True
                             unfrozen_count += param.numel()
-                    print(f"  Unfrozen {unfrozen_count:,} parameters in HuggingFace layers")
+                    print(f" Unfrozen {unfrozen_count:,} parameters in HuggingFace layers")
 
             elif self.backend == 'torchvision':
                 # For torchvision: unfreeze last N layers in encoder.layers
-                print(f"  Checking torchvision structure...")
+                print(f"Checking torchvision structure...")
                 print(f"    Has encoder: {hasattr(self.vit, 'encoder')}")
                 if hasattr(self.vit, 'encoder'):
                     print(f"    Encoder has layers: {hasattr(self.vit.encoder, 'layers')}")
@@ -267,7 +249,7 @@ class ViTClassifier(nn.Module):
                         start_unfreeze = max(0, num_layers - self.unfreeze_layers)
                         layers_to_unfreeze = min(self.unfreeze_layers, num_layers)
 
-                    print(f"✓ Unfreezing {layers_to_unfreeze} transformer layers "
+                    print(f"Unfreezing {layers_to_unfreeze} transformer layers "
                           f"({start_unfreeze} to {num_layers-1}) out of {num_layers} total")
 
                     unfrozen_count = 0
@@ -280,27 +262,13 @@ class ViTClassifier(nn.Module):
                         unfrozen_count += layer_params
                     print(f"  Total unfrozen in torchvision layers: {unfrozen_count:,} parameters")
                 else:
-                    print(f"  ❌ Could not find encoder.layers in torchvision model")
+                    print(f"    Could not find encoder.layers in torchvision model")
                     print(f"    Available attributes: {dir(self.vit)}")
-
-            elif self.backend == 'timm':
-                # For timm: unfreeze last N blocks
-                if hasattr(self.vit, 'blocks'):
-                    blocks = self.vit.blocks
-                    num_blocks = len(blocks)
-                    start_unfreeze = max(0, num_blocks - self.unfreeze_layers)
-
-                    print(f"✓ Unfreezing last {self.unfreeze_layers} transformer blocks "
-                          f"({start_unfreeze} to {num_blocks-1})")
-
-                    for i in range(start_unfreeze, num_blocks):
-                        for param in blocks[i].parameters():
-                            param.requires_grad = True
 
         # Count final trainable parameters
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        print(f"📊 Final parameter counts: {trainable_params:,} trainable / {total_params:,} total")
+        print(f"Final parameter counts: {trainable_params:,} trainable / {total_params:,} total")
 
         # Channel adapter always stays trainable
         if hasattr(self, 'channel_adapter'):
@@ -325,7 +293,6 @@ class ViTClassifier(nn.Module):
         x = self.channel_adapter(x).contiguous()
         
         if self.backend == 'huggingface':
-            # HuggingFace ViTForImageClassification also supports output_attentions
             outputs = self.vit(pixel_values=x, output_attentions=True)
             return outputs.attentions  # Tuple of attention tensors from each layer
         
@@ -342,10 +309,6 @@ class ViTClassifier(nn.Module):
             # torchvision uses encoder.layers
             for block in self.vit.encoder.layers:
                 hooks.append(block.self_attention.register_forward_hook(hook_fn))
-        elif self.backend == 'timm':
-            # timm uses blocks
-            for block in self.vit.blocks:
-                hooks.append(block.attn.register_forward_hook(hook_fn))
         
         # Forward pass
         _ = self.vit(x)
@@ -391,15 +354,6 @@ class ViTTripletBiRNNClassifier(nn.Module):
         """
         super().__init__()
 
-        if backend != 'huggingface':
-            raise ValueError("ViTTripletBiRNNClassifier currently supports only the 'huggingface' backend")
-
-        if input_channels % slice_channels != 0:
-            raise ValueError("input_channels must be divisible by slice_channels so slices can be reconstructed")
-
-        if sequence_pooling not in {'last', 'mean'}:
-            raise ValueError("sequence_pooling must be either 'last' or 'mean'")
-
         self.num_classes = num_classes
         self.slice_channels = slice_channels
         self.num_slices = input_channels // slice_channels
@@ -409,8 +363,6 @@ class ViTTripletBiRNNClassifier(nn.Module):
             self.vit = ViTModel.from_pretrained(model_name, local_files_only=True, use_safetensors=True)
         else:
             vit_config = ViTConfig.from_pretrained(model_name, local_files_only=True, use_safetensors=False)
-            # For loading from checkpoint, use standard config
-            # vit_config = ViTConfig.from_pretrained('google/vit-base-patch16-224')
             self.vit = ViTModel(vit_config)
 
         self.embed_dim = self.vit.config.hidden_size
@@ -550,7 +502,7 @@ class EnsembleViTClassifier(nn.Module):
         self.rnn_vit_model.to(device)
         self.rnn_vit_model.eval()
 
-        print(f"✓ Ensemble initialized with {ensemble_method} method")
+        print(f"Ensemble initialized with {ensemble_method} method")
         print(f"  Weights: {self.weights}")
 
     def _load_model_checkpoint(self, model_path: str, model_class):
@@ -561,15 +513,15 @@ class EnsembleViTClassifier(nn.Module):
         # Load checkpoint
         try:
             checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
-            print(f"  ✓ Checkpoint loaded successfully")
+            print(f"  Checkpoint loaded successfully")
         except Exception as e:
-            print(f"  ❌ Failed to load checkpoint: {e}")
+            print(f"  Failed to load checkpoint: {e}")
             raise
 
         # Extract config from checkpoint
         config = checkpoint.get('config', {})
         if not config:
-            print("  ⚠️  Warning: No config found in checkpoint, using default config")
+            print("  Warning: No config found in checkpoint, using default config")
             config = {
                 'model': {
                     'name': 'google/vit-base-patch16-224',
@@ -587,13 +539,13 @@ class EnsembleViTClassifier(nn.Module):
         if model_class == ViTTripletBiRNNClassifier:
             # Override model_name to avoid relative path issues in stored config
             model_name_override = 'pre-trained-model'
-            print(f"  ✓ Overriding model_name to: {model_name_override}")
+            print(f"  Overriding model_name to: {model_name_override}")
 
-            # For loading from checkpoint, don't try to load pretrained weights
+            # For loading from checkpoin
             model = ViTTripletBiRNNClassifier(
                 model_name=model_name_override,  # Use override instead of config['model']['name']
                 num_classes=config['model']['num_classes'],
-                pretrained=False,  # Don't load pretrained weights when loading from checkpoint
+                pretrained=False,
                 input_channels=config['model']['input_channels'],
                 slice_channels=config['model'].get('slice_channels', 3),
                 dropout=config['model']['dropout'],
@@ -618,9 +570,9 @@ class EnsembleViTClassifier(nn.Module):
         # Load state dict
         try:
             model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-            print(f"  ✓ Model state dict loaded successfully (strict=False)")
+            print(f"  Model state dict loaded successfully (strict=False)")
         except Exception as e:
-            print(f"  ❌ Failed to load model state dict: {e}")
+            print(f"  Failed to load model state dict: {e}")
             raise
 
         return model

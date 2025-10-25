@@ -24,7 +24,6 @@
           torchvision
 
           # Vision Transformer Models
-          timm
           transformers
 
           # Data Processing
