@@ -54,7 +54,7 @@ def parse_args():
                        help='Ensemble combination method')
     parser.add_argument('--weights', type=float, nargs=2, default=[0.5, 0.5],
                        help='Weights for weighted ensemble [full_vit_weight, rnn_vit_weight]')
-    parser.add_argument('--config', type=str, default='configs/base_config.yaml',
+    parser.add_argument('--config', type=str, default='configs/vit_base_config.yaml',
                        help='Path to configuration file')
     parser.add_argument('--output_dir', type=str, default='ensemble_results',
                        help='Output directory for results')
