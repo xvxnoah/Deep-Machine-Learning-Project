@@ -7,7 +7,7 @@ model:
   slice_channels: 3  # Channels per slice fed to the ViT backbone
   dropout: 0.1
   backend: "torchvision"
-  unfreeze_layers: -1
+  unfreeze_layers: 3
   rnn_hidden_size: 512
   rnn_num_layers: 1
   rnn_dropout: 0.0
