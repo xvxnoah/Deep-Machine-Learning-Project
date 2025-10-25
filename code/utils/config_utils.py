@@ -86,6 +86,6 @@ def validate_config(config):
     if 'epochs' not in config['training']:
         raise ValueError("training.epochs must be specified")
     
-    print("✓ Configuration validated successfully")
+    print("Configuration validated successfully")
     return True
 
