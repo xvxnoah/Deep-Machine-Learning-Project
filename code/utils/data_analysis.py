@@ -96,7 +96,7 @@ def analyze_dataset(data_root='processed_data'):
     }
 
 def compute_dataset_statistics(dataset):
-    print("Computing dataset statistics (this may take a while)...")
+    print("Computing dataset statistics")
     
     all_pixels = []
     
