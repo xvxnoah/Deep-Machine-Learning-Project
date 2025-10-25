@@ -96,20 +96,3 @@ class DicomSeriesDataset(Dataset):
         labels = self.labels[triplet_id]
 
         return image_stack, labels
-
-if __name__ == "__main__":
-    # Example usage
-
-    from torch.utils.data import DataLoader
-
-    dataset = DicomSeriesDataset(root_dir="triplets")
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-
-    for i, (images, labels) in enumerate(dataloader):
-        print(f"Batch {i}:")
-        print(f"  Images shape: {images.shape}")
-        print(f"  Labels: {labels}")
-        # Just process a few batches for demonstration
-        if i == 2:
-            break
-
