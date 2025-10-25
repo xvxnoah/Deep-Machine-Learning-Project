@@ -1,0 +1,75 @@
+# Model Configuration
+model:
+  name: "../pre-trained-model" # Path to pre-trained model
+  pretrained: true
+  num_classes: 5  # 5 hemorrhage subtypes
+  input_channels: 9  # 3 slices × 3 window presets
+  slice_channels: 3  # Channels per slice fed to the ViT backbone
+  dropout: 0.1
+  backend: "huggingface"
+  rnn_hidden_size: 512
+  rnn_num_layers: 1
+  rnn_dropout: 0.0
+  sequence_pooling: "last"
+  
+# Data Configuration
+data:
+  data_root: "processed_data"
+  train_split: "train"
+  val_split: "val"
+  test_split: "test"
+  batch_size: 128
+  num_workers: 12
+  pin_memory: true
+  
+# Training Configuration
+training:
+  epochs: 100
+  learning_rate: 0.0001  # 1e-4
+  weight_decay: 0.00001  # 1e-5
+  optimizer: "adamw"
+  scheduler: "cosine"
+  warmup_epochs: 5
+  gradient_clip: 1.0
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0
+    mode: "max"
+  
+# Loss Configuration
+loss:
+  type: "weighted_bce"  # Weighted Binary Cross Entropy
+  pos_weight_strategy: "inverse_freq"
+  
+# Metrics Configuration
+metrics:
+  track_per_class: true
+  metrics_list:
+    - "auc_roc"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "accuracy"
+  threshold: 0.5
+  
+# W&B Configuration
+wandb:
+  project: "Deep Machine Learning Project"
+  entity: null
+  log_interval: 10  # Log every N batches
+  log_model: true  # Save model checkpoints to W&B
+  watch_model: true  # Watch gradients and parameters
+  
+# Checkpoint Configuration
+checkpoint:
+  save_dir: "checkpoints"
+  save_frequency: 5  # Save every N epochs
+  save_best: true
+  metric_for_best: "val_auc_roc_macro"  # Metric to determine best model
+  mode: "max"
+  
+# Hardware Configuration
+hardware:
+  device: "auto"  # auto, cuda, mps, cpu
+  seed: 5252

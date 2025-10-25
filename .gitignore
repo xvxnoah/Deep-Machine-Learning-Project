@@ -42,3 +42,4 @@ Thumbs.db
 # Nix
 flake.lock
 
+code/pre-trained-model/

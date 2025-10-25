@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torchvision.models as tv_models
@@ -361,7 +362,7 @@ class ViTTripletBiRNNClassifier(nn.Module):
 
     def __init__(
         self,
-        model_name='../pre-trained-model/',
+        model_name='pre-trained-model',
         num_classes=5,
         pretrained=True,
         input_channels=9,
@@ -407,7 +408,9 @@ class ViTTripletBiRNNClassifier(nn.Module):
         if pretrained:
             self.vit = ViTModel.from_pretrained(model_name, local_files_only=True, use_safetensors=True)
         else:
-            vit_config = ViTConfig.from_pretrained(model_name, local_files_only=True, use_safetensors=True)
+            vit_config = ViTConfig.from_pretrained(model_name, local_files_only=True, use_safetensors=False)
+            # For loading from checkpoint, use standard config
+            # vit_config = ViTConfig.from_pretrained('google/vit-base-patch16-224')
             self.vit = ViTModel(vit_config)
 
         self.embed_dim = self.vit.config.hidden_size
@@ -498,4 +501,202 @@ class ViTTripletBiRNNClassifier(nn.Module):
                 embeddings = vit_outputs.last_hidden_state[:, 0]
             embeddings = embeddings.view(b, self.num_slices, self.embed_dim).contiguous()
         return embeddings
+
+
+class EnsembleViTClassifier(nn.Module):
+    """Ensemble model combining a full ViT classifier and a ViT-RNN classifier."""
+
+    def __init__(
+        self,
+        full_vit_path: str,
+        rnn_vit_path: str,
+        ensemble_method: str = 'average',
+        weights: list = None,
+        num_classes: int = 5,
+        device: str = 'cpu'
+    ):
+        """
+        Initialize ensemble model.
+
+        Args:
+            full_vit_path (str): Path to the full ViT model checkpoint
+            rnn_vit_path (str): Path to the ViT-RNN model checkpoint
+            ensemble_method (str): How to combine predictions ('average', 'weighted', 'max_confidence')
+            weights (list): Weights for weighted averaging [full_vit_weight, rnn_vit_weight]
+            num_classes (int): Number of output classes
+            device (str): Device to load models on
+        """
+        super().__init__()
+
+        self.ensemble_method = ensemble_method
+        self.num_classes = num_classes
+        self.device = device
+
+        # Set default weights if not provided
+        if weights is None:
+            self.weights = [0.5, 0.5]  # Equal weighting by default
+        else:
+            self.weights = weights
+
+        # Load full ViT model
+        print(f"Loading full ViT model from: {full_vit_path}")
+        self.full_vit_model = self._load_model_checkpoint(full_vit_path, ViTClassifier)
+        self.full_vit_model.to(device)
+        self.full_vit_model.eval()
+
+        # Load ViT-RNN model
+        print(f"Loading ViT-RNN model from: {rnn_vit_path}")
+        self.rnn_vit_model = self._load_model_checkpoint(rnn_vit_path, ViTTripletBiRNNClassifier)
+        self.rnn_vit_model.to(device)
+        self.rnn_vit_model.eval()
+
+        print(f"✓ Ensemble initialized with {ensemble_method} method")
+        print(f"  Weights: {self.weights}")
+
+    def _load_model_checkpoint(self, model_path: str, model_class):
+        """Load a model from checkpoint."""
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        # Load checkpoint
+        try:
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
+            print(f"  ✓ Checkpoint loaded successfully")
+        except Exception as e:
+            print(f"  ❌ Failed to load checkpoint: {e}")
+            raise
+
+        # Extract config from checkpoint
+        config = checkpoint.get('config', {})
+        if not config:
+            print("  ⚠️  Warning: No config found in checkpoint, using default config")
+            config = {
+                'model': {
+                    'name': 'google/vit-base-patch16-224',
+                    'num_classes': 5,
+                    'pretrained': True,
+                    'input_channels': 9,
+                    'slice_channels': 3,
+                    'dropout': 0.1,
+                    'backend': 'torchvision',
+                    'unfreeze_layers': 0
+                }
+            }
+
+        # Recreate model with same parameters
+        if model_class == ViTTripletBiRNNClassifier:
+            # Override model_name to avoid relative path issues in stored config
+            model_name_override = 'pre-trained-model'
+            print(f"  ✓ Overriding model_name to: {model_name_override}")
+
+            # For loading from checkpoint, don't try to load pretrained weights
+            model = ViTTripletBiRNNClassifier(
+                model_name=model_name_override,  # Use override instead of config['model']['name']
+                num_classes=config['model']['num_classes'],
+                pretrained=False,  # Don't load pretrained weights when loading from checkpoint
+                input_channels=config['model']['input_channels'],
+                slice_channels=config['model'].get('slice_channels', 3),
+                dropout=config['model']['dropout'],
+                rnn_hidden_size=config['model'].get('rnn_hidden_size', 512),
+                rnn_num_layers=config['model'].get('rnn_num_layers', 1),
+                rnn_dropout=config['model'].get('rnn_dropout', 0.0),
+                sequence_pooling=config['model'].get('sequence_pooling', 'last'),
+                backend=config['model']['backend']
+            )
+        else:  # ViTClassifier
+            model = ViTClassifier(
+                model_name=config['model']['name'],
+                num_classes=config['model']['num_classes'],
+                pretrained=config['model']['pretrained'],
+                input_channels=config['model']['input_channels'],
+                slice_channels=config['model'].get('slice_channels', 3),
+                dropout=config['model']['dropout'],
+                backend=config['model']['backend'],
+                unfreeze_layers=config['model'].get('unfreeze_layers', 0)
+            )
+
+        # Load state dict
+        try:
+            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            print(f"  ✓ Model state dict loaded successfully (strict=False)")
+        except Exception as e:
+            print(f"  ❌ Failed to load model state dict: {e}")
+            raise
+
+        return model
+
+    def forward(self, x):
+        """
+        Forward pass through ensemble.
+
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            torch.Tensor: Ensemble predictions
+        """
+        # Get predictions from both models
+        with torch.no_grad():
+            full_vit_logits = self.full_vit_model(x)
+            rnn_vit_logits = self.rnn_vit_model(x)
+
+        # Apply ensemble method
+        if self.ensemble_method == 'average':
+            # Simple averaging of logits
+            ensemble_logits = (full_vit_logits + rnn_vit_logits) / 2
+
+        elif self.ensemble_method == 'weighted':
+            # Weighted averaging of logits
+            w1, w2 = self.weights
+            ensemble_logits = w1 * full_vit_logits + w2 * rnn_vit_logits
+
+        elif self.ensemble_method == 'max_confidence':
+            # Use predictions from model with higher confidence
+            full_vit_probs = torch.sigmoid(full_vit_logits)
+            rnn_vit_probs = torch.sigmoid(rnn_vit_logits)
+
+            # Calculate confidence as mean probability across classes
+            full_confidence = full_vit_probs.mean(dim=1, keepdim=True)
+            rnn_confidence = rnn_vit_probs.mean(dim=1, keepdim=True)
+
+            # Select logits based on higher confidence
+            ensemble_logits = torch.where(
+                full_confidence > rnn_confidence,
+                full_vit_logits,
+                rnn_vit_logits
+            )
+
+        elif self.ensemble_method == 'voting':
+            # Convert to binary predictions and vote
+            full_vit_preds = (torch.sigmoid(full_vit_logits) > 0.5).float()
+            rnn_vit_preds = (torch.sigmoid(rnn_vit_logits) > 0.5).float()
+
+            # Majority voting (average predictions)
+            ensemble_preds = (full_vit_preds + rnn_vit_preds) / 2
+            # Convert back to logits (rough approximation)
+            ensemble_logits = torch.log(ensemble_preds / (1 - ensemble_preds + 1e-8))
+
+        else:
+            raise ValueError(f"Unknown ensemble method: {self.ensemble_method}")
+
+        return ensemble_logits
+
+    def to(self, device):
+        """Move ensemble to device."""
+        self.device = device
+        self.full_vit_model.to(device)
+        self.rnn_vit_model.to(device)
+        return self
+
+    def eval(self):
+        """Set ensemble to evaluation mode."""
+        self.full_vit_model.eval()
+        self.rnn_vit_model.eval()
+        return self
+
+    def train(self, mode=True):
+        """Set ensemble to training mode (not typically used for inference)."""
+        self.full_vit_model.train(mode)
+        self.rnn_vit_model.train(mode)
+        return self
 

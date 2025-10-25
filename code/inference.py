@@ -27,16 +27,27 @@ from sklearn.metrics import roc_curve, auc, confusion_matrix, roc_auc_score
 sys.path.append('.')
 
 from dataset import PreprocessedDataset
-from models import ViTClassifier
+from models import ViTClassifier, EnsembleViTClassifier
 from utils import MetricsCalculator, Trainer
 from utils.config_utils import load_config, get_device
 from utils.metrics import log_classification_report
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Run inference with trained ViT model')
-    parser.add_argument('--model_path', type=str, required=True,
-                       help='Path to trained model checkpoint')
+    parser = argparse.ArgumentParser(description='Run inference with trained ViT model or ensemble')
+    parser.add_argument('--model_path', type=str,
+                       help='Path to trained model checkpoint (for single model evaluation)')
+    parser.add_argument('--full_vit_path', type=str, default='best_model_full.pt',
+                       help='Path to full ViT model checkpoint (for ensemble)')
+    parser.add_argument('--rnn_vit_path', type=str, default='best_model_rnn.pt',
+                       help='Path to ViT-RNN model checkpoint (for ensemble)')
+    parser.add_argument('--ensemble', action='store_true',
+                       help='Run ensemble evaluation combining full ViT and ViT-RNN models')
+    parser.add_argument('--ensemble_method', type=str, default='average',
+                       choices=['average', 'weighted', 'max_confidence', 'voting'],
+                       help='Ensemble combination method')
+    parser.add_argument('--ensemble_weights', type=float, nargs=2, default=[0.5, 0.5],
+                       help='Weights for weighted ensemble [full_vit_weight, rnn_vit_weight]')
     parser.add_argument('--config', type=str, default='configs/base_config.yaml',
                        help='Path to configuration file')
     parser.add_argument('--output_dir', type=str, default='inference_results',
@@ -528,6 +539,26 @@ def create_per_class_metrics_plot(metrics, output_dir):
 
     print(f"✓ Per-class metrics plot saved to: {plot_path}")
 
+
+def load_ensemble_model(full_vit_path, rnn_vit_path, ensemble_method, weights, device):
+    """Load ensemble model combining full ViT and ViT-RNN models."""
+    print("Loading ensemble model...")
+    print(f"  Full ViT path: {full_vit_path}")
+    print(f"  RNN ViT path: {rnn_vit_path}")
+    print(f"  Ensemble method: {ensemble_method}")
+    print(f"  Weights: {weights}")
+
+    ensemble = EnsembleViTClassifier(
+        full_vit_path=full_vit_path,
+        rnn_vit_path=rnn_vit_path,
+        ensemble_method=ensemble_method,
+        weights=weights,
+        device=device
+    )
+
+    return ensemble
+
+
 def main():
     """Main inference function."""
     args = parse_args()
@@ -567,8 +598,42 @@ def main():
         print("Warning: Loading CUDA checkpoint to MPS may cause issues")
         print("Consider using --device cuda or --device cpu instead")
 
-    # Load model
-    model, checkpoint_config = load_model_checkpoint(args.model_path, device)
+    # Load model or ensemble
+    if args.ensemble:
+        print("\n" + "="*60)
+        print("ENSEMBLE EVALUATION MODE")
+        print("="*60)
+
+        # Validate required arguments for ensemble
+        if not os.path.exists(args.full_vit_path):
+            raise FileNotFoundError(f"Full ViT model not found: {args.full_vit_path}")
+        if not os.path.exists(args.rnn_vit_path):
+            raise FileNotFoundError(f"RNN ViT model not found: {args.rnn_vit_path}")
+
+        model = load_ensemble_model(
+            full_vit_path=args.full_vit_path,
+            rnn_vit_path=args.rnn_vit_path,
+            ensemble_method=args.ensemble_method,
+            weights=args.ensemble_weights,
+            device=device
+        )
+        checkpoint_config = None  # Ensemble doesn't have a single config
+        model_name = f"Ensemble_{args.ensemble_method}"
+
+    else:
+        print("\n" + "="*60)
+        print("SINGLE MODEL EVALUATION MODE")
+        print("="*60)
+
+        # Validate required arguments for single model
+        if not args.model_path:
+            raise ValueError("Must specify --model_path for single model evaluation")
+        if not os.path.exists(args.model_path):
+            raise FileNotFoundError(f"Model file not found: {args.model_path}")
+
+        # Load single model
+        model, checkpoint_config = load_model_checkpoint(args.model_path, device)
+        model_name = checkpoint_config['model']['name'] if checkpoint_config else "Unknown"
 
     # Create test dataset and loader
     data_root = config['data']['data_root']
@@ -669,16 +734,33 @@ def main():
     create_per_class_metrics_plot(metrics, str(output_dir))
 
     # Save results to JSON
-    results = {
-        'model_path': str(args.model_path),
-        'best_threshold': float(best_threshold),
-        'test_metrics_default_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
-                                         for k, v in metrics.items()},
-        'test_metrics_best_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
-                                       for k, v in best_threshold_metrics.items()},
-        'config': config,
-        'inference_time': str(output_dir)
-    }
+    if args.ensemble:
+        results = {
+            'model_type': 'ensemble',
+            'ensemble_method': args.ensemble_method,
+            'ensemble_weights': args.ensemble_weights,
+            'full_vit_path': str(args.full_vit_path),
+            'rnn_vit_path': str(args.rnn_vit_path),
+            'best_threshold': float(best_threshold),
+            'test_metrics_default_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
+                                             for k, v in metrics.items()},
+            'test_metrics_best_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
+                                           for k, v in best_threshold_metrics.items()},
+            'config': config,
+            'inference_time': str(output_dir)
+        }
+    else:
+        results = {
+            'model_type': 'single',
+            'model_path': str(args.model_path),
+            'best_threshold': float(best_threshold),
+            'test_metrics_default_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
+                                             for k, v in metrics.items()},
+            'test_metrics_best_threshold': {k: float(v) if isinstance(v, (np.floating, float)) else v
+                                           for k, v in best_threshold_metrics.items()},
+            'config': config,
+            'inference_time': str(output_dir)
+        }
 
     results_path = output_dir / 'inference_results.json'
     with open(results_path, 'w') as f:
@@ -691,7 +773,13 @@ def main():
     print("\n" + "="*60)
     print("INFERENCE SUMMARY")
     print("="*60)
-    print(f"Model: {args.model_path}")
+    if args.ensemble:
+        print(f"Model Type: Ensemble ({args.ensemble_method})")
+        print(f"Full ViT: {args.full_vit_path}")
+        print(f"RNN ViT: {args.rnn_vit_path}")
+        print(f"Weights: {args.ensemble_weights}")
+    else:
+        print(f"Model: {args.model_path}")
     print(f"Samples: {len(test_dataset)}")
     print(f"Best Threshold: {best_threshold:.4f}")
 

@@ -1,13 +1,13 @@
 # Model Configuration
 model:
-  name: "google/vit-base-patch16-224"  # HuggingFace model name
+  name: "google/vit-base-patch16-224" # HuggingFace model name
   pretrained: true
   num_classes: 5  # 5 hemorrhage subtypes
   input_channels: 9  # 3 slices × 3 window presets
   slice_channels: 3  # Channels per slice fed to the ViT backbone
   dropout: 0.1
-  backend: "torchvision"  # Options: huggingface, torchvision (BETTER for multi-label), timm
-  unfreeze_layers: -1  # Freeze backbone, train only classifier + channel adapter (~5M params like colleague)
+  backend: "torchvision"
+  unfreeze_layers: -1
   rnn_hidden_size: 512
   rnn_num_layers: 1
   rnn_dropout: 0.0
@@ -25,7 +25,7 @@ data:
   
 # Training Configuration
 training:
-  epochs: 50  # Reduced from 100 since we have more capacity per parameter than RNN
+  epochs: 50
   learning_rate: 0.0001  # 1e-4
   weight_decay: 0.00001  # 1e-5
   optimizer: "adamw"
@@ -33,15 +33,15 @@ training:
   warmup_epochs: 5
   gradient_clip: 1.0
   early_stopping:
-    enabled: true     # Enable early stopping
-    patience: 10       # Number of epochs with no improvement before stopping
-    min_delta: 0.0     # Minimum change to qualify as an improvement
-    mode: "max"       # Which direction constitutes improvement: 'max' or 'min'
+    enabled: true
+    patience: 10
+    min_delta: 0.0 
+    mode: "max"
   
 # Loss Configuration
 loss:
   type: "weighted_bce"  # Weighted Binary Cross Entropy
-  pos_weight_strategy: "inverse_freq"  # Options: inverse_freq, effective_samples, sqrt_inverse_freq
+  pos_weight_strategy: "inverse_freq"
   
 # Metrics Configuration
 metrics:
@@ -65,10 +65,18 @@ wandb:
 # Checkpoint Configuration
 checkpoint:
   save_dir: "checkpoints"
-  save_best: true  # Only save best model (not periodic checkpoints)
+  save_best: true  # Only save best model
   metric_for_best: "val_auc_roc_macro"  # Metric to determine best model
-  mode: "max"  # max or min
+  mode: "max"
   
+# Ensemble Configuration
+ensemble:
+  enabled: false
+  full_vit_path: "best_model_full.pt"  # Path to full ViT model
+  rnn_vit_path: "best_model_rnn.pt"    # Path to ViT-RNN model
+  method: "average"  # Ensemble method: average, weighted, max_confidence, voting
+  weights: [0.5, 0.5]  # Weights for weighted ensemble [full_vit_weight, rnn_vit_weight]
+
 # Hardware Configuration
 hardware:
   device: "auto"  # auto, cuda, mps, cpu
