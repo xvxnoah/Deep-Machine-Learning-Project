@@ -48,7 +48,7 @@ def main():
     results = {}
 
     print("Dataset Sample Counts")
-    print("=" * 50)
+    print("-" * 21)
 
     for split in splits:
         split_path = os.path.join(base_path, split)
@@ -58,7 +58,7 @@ def main():
             continue
 
         print(f"\n{split.upper()} Split:")
-        print("-" * 20)
+        print("-" * (len(split) + 6))
 
         class_counts = count_samples_in_split(split_path)
         results[split] = class_counts
@@ -71,16 +71,16 @@ def main():
                 print(f"  {class_name}: {count} samples")
 
     # Print summary table
-    print("\n\nSUMMARY TABLE")
-    print("=" * 50)
+    print("\n\nSummary Table")
+    print("-" * 14)
     print(f"{'Split':<10} {'Samples':<10}")
-    print("-" * 50)
+    print("-" * 21)
 
     for split in splits:
         if split in results:
             print(f"{split.upper():<10} {results[split]['TOTAL']:<10}")
 
-    print("-" * 50)
+    print("-" * 21)
     total_all = sum(results[split]['TOTAL'] for split in splits if split in results)
     print(f"{'TOTAL':<10} {total_all:<10}")
 

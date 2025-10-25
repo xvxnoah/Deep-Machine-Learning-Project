@@ -219,7 +219,7 @@ def main():
         if config['wandb']['watch_model']:
             wandb.watch(model, log='all', log_freq=100)
 
-        print(f"✓ W&B initialized: {wandb.run.name}")
+        print(f"W&B initialized: {wandb.run.name}")
         print(f"  Project: {config['wandb']['project']}")
         print(f"  Run URL: {wandb.run.get_url()}")
     else:
@@ -315,24 +315,22 @@ def main():
         with open(results_path, 'w') as f:
             json.dump(results, f, indent=2)
 
-        print(f"✓ Results saved to {results_path}")
+        print(f"Results saved to {results_path}")
 
         # Print summary
-        print("\n" + "="*80)
-        print("FINAL RESULTS SUMMARY")
-        print("="*80)
+        print("\nFinal Results Summary")
+        print("-" * 21)
         print(f"\nOverall Performance:")
         print(f"  AUC-ROC (Macro):      {test_metrics['auc_roc_macro']:.4f}")
         print(f"  AUC-ROC (Weighted):   {test_metrics.get('auc_roc_weighted', 0):.4f}")
         print(f"  F1-Score (Macro):     {test_metrics['f1_macro']:.4f}")
         print(f"  Exact Match Accuracy: {test_metrics['accuracy_exact']:.4f}")
         print(f"  Hamming Accuracy:     {test_metrics['accuracy_hamming']:.4f}")
-        print("\n" + "="*80)
 
         # Finish W&B run
         if USE_WANDB:
             wandb.finish()
-            print("✓ W&B run finished")
+            print("W&B run finished")
 
 
 if __name__ == '__main__':

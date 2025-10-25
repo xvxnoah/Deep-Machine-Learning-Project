@@ -157,9 +157,8 @@ class Trainer:
         return metrics
     
     def fit(self, epochs):
-        print(f"\n{'='*80}")
-        print(f"Starting Training for {epochs} epochs")
-        print(f"{'='*80}\n")
+        print(f"\nStarting Training for {epochs} epochs")
+        print("-" * 35)
         
         for epoch in range(1, epochs + 1):
             self.current_epoch = epoch
@@ -245,12 +244,10 @@ class Trainer:
                 print(f"\nEarly stopping triggered after {epoch} epochs (no improvement for {self.no_improve_epochs} epochs).")
                 break
         
-        print(f"\n{'='*80}")
-        print(f"Training Complete!")
+        print(f"\nTraining Complete!")
         print(f"Best {self.best_metric_name}: {self.best_metric:.4f}")
         if hasattr(self, '_run_dir'):
             print(f"Best model saved at: {self._run_dir / 'best_model.pt'}")
-        print(f"{'='*80}\n")
     
     def save_checkpoint(self, epoch, is_best=False, metrics=None):
         from datetime import datetime
@@ -300,9 +297,8 @@ class Trainer:
     
     @torch.no_grad()
     def test(self, test_loader):
-        print(f"\n{'='*80}")
-        print("Running Test Evaluation")
-        print(f"{'='*80}\n")
+        print("\nRunning Test Evaluation")
+        print("-" * 23)
         
         self.model.eval()
         test_metrics = MetricsCalculator(num_classes=self.num_classes)

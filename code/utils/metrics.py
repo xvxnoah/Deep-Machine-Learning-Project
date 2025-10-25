@@ -213,9 +213,8 @@ def log_classification_report(metrics, prefix=''):
     class_names = ['epidural', 'intraparenchymal', 'intraventricular',
                    'subarachnoid', 'subdural']
 
-    print(f"\n{'='*80}")
-    print(f"{prefix.upper()} CLASSIFICATION REPORT")
-    print(f"{'='*80}")
+    print(f"\n{prefix.upper()} Classification Report")
+    print("-" * (len(prefix) + 23))
 
     # Overall metrics
     print("\nOverall Metrics:")
@@ -241,6 +240,4 @@ def log_classification_report(metrics, prefix=''):
     print(f"\nSpecial Case AUC-ROC:")
     print(f"  Healthy (No Hemorrhages): {metrics.get('auc_roc_healthy', 0):.4f}")
     print(f"  Multiple Hemorrhages:      {metrics.get('auc_roc_multiple', 0):.4f}")
-
-    print(f"{'='*80}\n")
 

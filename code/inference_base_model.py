@@ -56,7 +56,7 @@ def load_model_checkpoint(model_path, device):
         try:
             print("Attempting to load via CPU...")
             checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-            print("✓ Checkpoint loaded successfully via CPU")
+            print("Checkpoint loaded successfully via CPU")
         except Exception as e2:
             raise e2
 
@@ -77,7 +77,7 @@ def load_model_checkpoint(model_path, device):
     if is_rnn_model:
         # Override model_name to avoid relative path issues in stored config
         model_name_override = 'pre-trained-model'
-        print(f"  ✓ Detected ViT-RNN model, overriding model_name to: {model_name_override}")
+        print(f"  Detected ViT-RNN model, overriding model_name to: {model_name_override}")
 
         model = ViTTripletBiRNNClassifier(
             model_name=model_name_override,  # Use override instead of config['model']['name']
@@ -221,7 +221,7 @@ def create_simple_auc_roc_curves(metrics, targets, probabilities, output_dir):
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"✓ Simple AUC-ROC curves plot saved to: {plot_path}")
+    print(f"Simple AUC-ROC curves plot saved to: {plot_path}")
 
 def create_per_class_metrics_plot(metrics, output_dir):
     """Create bar chart for per-class precision/recall/f1."""
@@ -256,7 +256,7 @@ def create_per_class_metrics_plot(metrics, output_dir):
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"✓ Per-class metrics plot saved to: {plot_path}")
+    print(f"Per-class metrics plot saved to: {plot_path}")
 
 
 def main():

@@ -29,9 +29,8 @@ def analyze_dataset(data_root='processed_data'):
     neg_counts = total_samples - pos_counts
     
     # Print analysis
-    print(f"\n{'='*80}")
-    print("DATASET ANALYSIS")
-    print(f"{'='*80}\n")
+    print("\nDataset Analysis")
+    print("-" * 16)
     
     print(f"Total Samples: {total_samples}")
     print(f"Unique Class Combinations: {len(combination_counts)}\n")
@@ -68,10 +67,8 @@ def analyze_dataset(data_root='processed_data'):
         pct = (count / total_samples) * 100
         print(f"{combo_str:<35s} {count:>10d} {pct:>11.2f}%")
     
-    print(f"{'='*80}\n")
-    
     # Analyze splits
-    print("Dataset Splits:")
+    print("\nDataset Splits:")
     splits_info = {}
     for split in ['train', 'val', 'test']:
         split_path = Path(data_root) / split
@@ -83,7 +80,6 @@ def analyze_dataset(data_root='processed_data'):
             splits_info[split] = file_count
             print(f"  {split:5s}: {file_count:5d} samples ({file_count/total_samples*100:5.2f}%)")
     
-    print(f"{'='*80}\n")
     
     return {
         'total_samples': total_samples,
