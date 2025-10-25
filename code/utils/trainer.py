@@ -276,7 +276,7 @@ class Trainer:
         # Save best model in timestamped directory (overwrites when better)
         best_path = self._run_dir / 'best_model.pt'
         torch.save(checkpoint, best_path)
-        print(f"  ✓ New best model saved: {best_path}")
+        print(f"  New best model saved: {best_path}")
 
         # Log to W&B
         if self.use_wandb and self.config.get('wandb', {}).get('log_model', True):
