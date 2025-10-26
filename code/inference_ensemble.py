@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from tqdm import tqdm
-from sklearn.metrics import roc_curve, auc, confusion_matrix, roc_auc_score
+from sklearn.metrics import (roc_curve, auc, confusion_matrix, roc_auc_score,
+                             precision_recall_fscore_support)
 
 # Enable MPS fallback for unsupported operations
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -160,50 +161,6 @@ def evaluate_ensemble(ensemble, test_loader, device):
     return metrics
 
 
-def create_comparison_plot(individual_results, ensemble_results, output_dir):
-    """Create comparison plot between individual models and ensemble."""
-    models = []
-    auc_scores = []
-
-    if individual_results['full_vit']:
-        models.append('Full ViT')
-        auc_scores.append(individual_results['full_vit']['auc_roc_macro'])
-
-    if individual_results['rnn_vit']:
-        models.append('ViT-RNN')
-        auc_scores.append(individual_results['rnn_vit']['auc_roc_macro'])
-
-    models.append('Ensemble')
-    # Handle both old format (auc_roc_macro) and new format (auc_roc_macro_default)
-    ensemble_auc = (ensemble_results.get('auc_roc_macro') or
-                   ensemble_results.get('auc_roc_macro_default') or
-                   0.0)
-    auc_scores.append(ensemble_auc)
-
-    # Create bar plot
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    bars = ax.bar(models, auc_scores, color=['#3498db', '#e74c3c', '#2ecc71'], alpha=0.8)
-
-    # Add value labels
-    for bar, score in zip(bars, auc_scores):
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + 0.001,
-                f'{score:.4f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
-
-    ax.set_xlabel('Model', fontsize=14, fontweight='bold')
-    ax.set_ylabel('AUC-ROC Macro Score', fontsize=14, fontweight='bold')
-    ax.set_title('Model Performance Comparison', fontsize=16, fontweight='bold')
-    ax.set_ylim([min(auc_scores) - 0.01, max(auc_scores) + 0.02])
-    ax.grid(axis='y', alpha=0.3, linestyle='--')
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'ensemble_comparison.png'), dpi=150, bbox_inches='tight')
-    plt.close()
-
-    print(f"Comparison plot saved to: {os.path.join(output_dir, 'ensemble_comparison.png')}")
-
-
 def run_comprehensive_inference(ensemble, test_loader, device, output_dir):
     """Run comprehensive inference with threshold optimization and detailed plots."""
     print("\nRunning Comprehensive Inference on Test Set")
@@ -258,52 +215,100 @@ def run_comprehensive_inference(ensemble, test_loader, device, output_dir):
 
 
 def calculate_threshold_metrics(predictions, targets):
-    """Calculate metrics for given predictions and targets."""
+    """Calculate metrics for given predictions and targets, including all 7 categories."""
     from sklearn.metrics import precision_recall_fscore_support, accuracy_score, hamming_loss
 
-    precision, recall, f1, support = precision_recall_fscore_support(
-        targets, predictions, average=None, zero_division=0
-    )
+    # Calculate metrics for all 7 categories as separate binary classification problems
+    category_names = ['epidural', 'intraparenchymal', 'intraventricular', 'subarachnoid', 'subdural', 'healthy', 'multiple']
+    category_targets = []
+    category_predictions = []
+    category_supports = []
 
-    # Macro averages
-    precision_macro = precision.mean()
-    recall_macro = recall.mean()
-    f1_macro = f1.mean()
+    # Original 5 hemorrhage types
+    for i in range(5):
+        binary_targets = targets[:, i]
+        binary_predictions = predictions[:, i]
+        category_targets.append(binary_targets)
+        category_predictions.append(binary_predictions)
+        category_supports.append(binary_targets.sum())
 
-    # Micro averages
-    p_micro, r_micro, f1_micro, _ = precision_recall_fscore_support(
-        targets, predictions, average='micro', zero_division=0
-    )
+    # Healthy (no hemorrhages)
+    healthy_targets = (targets.sum(axis=1) == 0).astype(int)
+    healthy_predictions = (predictions.sum(axis=1) == 0).astype(int)
+    category_targets.append(healthy_targets)
+    category_predictions.append(healthy_predictions)
+    category_supports.append(healthy_targets.sum())
 
-    # Weighted averages
-    p_weighted, r_weighted, f1_weighted, _ = precision_recall_fscore_support(
-        targets, predictions, average='weighted', zero_division=0
-    )
+    # Multiple hemorrhages
+    multiple_targets = (targets.sum(axis=1) > 1).astype(int)
+    multiple_predictions = (predictions.sum(axis=1) > 1).astype(int)
+    category_targets.append(multiple_targets)
+    category_predictions.append(multiple_predictions)
+    category_supports.append(multiple_targets.sum())
 
-    # Accuracy metrics
+    # Calculate precision, recall, f1 for each category
+    precisions = []
+    recalls = []
+    f1s = []
+
+    for targets_cat, preds_cat in zip(category_targets, category_predictions):
+        p, r, f1, _ = precision_recall_fscore_support(targets_cat, preds_cat, average='binary', zero_division=0)
+        precisions.append(p)
+        recalls.append(r)
+        f1s.append(f1)
+
+    # Convert to numpy arrays for easier calculations
+    precisions = np.array(precisions)
+    recalls = np.array(recalls)
+    f1s = np.array(f1s)
+    supports = np.array(category_supports)
+
+    # Macro averages (simple average across all 7 categories)
+    precision_macro = precisions.mean()
+    recall_macro = recalls.mean()
+    f1_macro = f1s.mean()
+
+    # Micro averages (weighted by support, then averaged)
+    total_support = supports.sum()
+    if total_support > 0:
+        precision_micro = (precisions * supports).sum() / total_support
+        recall_micro = (recalls * supports).sum() / total_support
+        f1_micro = (f1s * supports).sum() / total_support
+    else:
+        precision_micro = recall_micro = f1_micro = 0.0
+
+    # Weighted averages (weighted by support)
+    if supports.sum() > 0:
+        precision_weighted = (precisions * supports).sum() / supports.sum()
+        recall_weighted = (recalls * supports).sum() / supports.sum()
+        f1_weighted = (f1s * supports).sum() / supports.sum()
+    else:
+        precision_weighted = recall_weighted = f1_weighted = 0.0
+
+    # Accuracy metrics (keep the original multi-class accuracies)
     exact_match_acc = accuracy_score(targets, predictions)
     hamming_acc = 1 - hamming_loss(targets, predictions)
 
-    # Per-class metrics
-    class_names = ['epidural', 'intraparenchymal', 'intraventricular', 'subarachnoid', 'subdural']
+    # Build metrics dictionary
     metrics = {
         'precision_macro': precision_macro,
         'recall_macro': recall_macro,
         'f1_macro': f1_macro,
-        'precision_micro': p_micro,
-        'recall_micro': r_micro,
+        'precision_micro': precision_micro,
+        'recall_micro': recall_micro,
         'f1_micro': f1_micro,
-        'precision_weighted': p_weighted,
-        'recall_weighted': r_weighted,
+        'precision_weighted': precision_weighted,
+        'recall_weighted': recall_weighted,
         'f1_weighted': f1_weighted,
         'accuracy_exact': exact_match_acc,
         'accuracy_hamming': hamming_acc,
     }
 
-    for i, name in enumerate(class_names):
-        metrics[f'precision_{name}'] = precision[i]
-        metrics[f'recall_{name}'] = recall[i]
-        metrics[f'f1_{name}'] = f1[i]
+    # Add per-category metrics
+    for i, name in enumerate(category_names):
+        metrics[f'precision_{name}'] = precisions[i]
+        metrics[f'recall_{name}'] = recalls[i]
+        metrics[f'f1_{name}'] = f1s[i]
 
     return metrics
 
@@ -350,17 +355,16 @@ def create_simple_auc_roc_curves(targets, probabilities, output_dir):
     # Customize plot
     ax.set_xlabel('False Positive Rate', fontsize=14, fontweight='bold')
     ax.set_ylabel('True Positive Rate', fontsize=14, fontweight='bold')
-    ax.set_title('ROC Curves - All Categories', fontsize=16, fontweight='bold')
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1.05])
     ax.grid(True, alpha=0.3)
 
     # Legend
-    ax.legend(loc='lower right', fontsize=10, framealpha=0.9)
+    ax.legend(loc='lower right', fontsize=14, framealpha=0.9)
 
     plt.tight_layout()
-    plot_path = os.path.join(output_dir, 'simple_auc_roc_curves.png')
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plot_path = os.path.join(output_dir, 'simple_auc_roc_curves.pdf')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
 
     print(f"Simple AUC-ROC curves plot saved to: {plot_path}")
@@ -397,11 +401,45 @@ def create_per_class_metrics_plot(metrics, output_dir):
     ax.set_ylim([0, 1])
 
     plt.tight_layout()
-    plot_path = os.path.join(output_dir, 'per_class_metrics.png')
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plot_path = os.path.join(output_dir, 'per_class_metrics.pdf')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
 
     print(f"Per-class metrics plot saved to: {plot_path}")
+
+
+def create_confusion_matrix_heatmap(predictions, targets, output_dir):
+    """Create a confusion matrix heatmap for multi-class classification."""
+    class_names = ['Epidural', 'Intraparenchymal', 'Intraventricular', 'Subarachnoid', 'Subdural']
+
+    # Calculate confusion matrix
+    cm = confusion_matrix(targets.argmax(axis=1), predictions.argmax(axis=1))
+
+    # Normalize by true labels (rows)
+    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    cm_normalized = np.nan_to_num(cm_normalized)  # Handle division by zero
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # Create heatmap
+    sns.heatmap(cm_normalized, annot=True, fmt='.2f', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names,
+                ax=ax, cbar=False, annot_kws={"fontsize": 12})
+
+    # Increase font size for tick labels
+    ax.tick_params(axis='x', labelsize=12)
+    ax.tick_params(axis='y', labelsize=12)
+
+    ax.set_xlabel('Predicted Label', fontsize=14, fontweight='bold')
+    ax.set_ylabel('True Label', fontsize=14, fontweight='bold')
+
+    plt.tight_layout()
+    plot_path = os.path.join(output_dir, 'confusion_matrix_heatmap.pdf')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"Confusion matrix heatmap saved to: {plot_path}")
 
 
 def main():
@@ -464,8 +502,7 @@ def main():
     default_predictions = (probabilities >= 0.5).astype(int)
     default_threshold_metrics = calculate_threshold_metrics(default_predictions, targets)
 
-    # Create comparison plot with individual models
-    create_comparison_plot(individual_results, threshold_independent_metrics, output_dir)
+
 
     # Print results comparison
     print("\nEnsemble Results Comparison")
@@ -496,6 +533,10 @@ def main():
     print("\nCreating comprehensive plots...")
     create_simple_auc_roc_curves(targets, probabilities, output_dir)
     create_per_class_metrics_plot(default_threshold_metrics, output_dir)
+
+    # Additional insightful visualizations for report
+    print("\nCreating additional visualizations...")
+    create_confusion_matrix_heatmap(default_predictions, targets, output_dir)
 
     # Save comprehensive results
     results = {
